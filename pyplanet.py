@@ -1,0 +1,222 @@
+#!/usr/bin/env python
+# calculates the apparent (date) coordinates of planets
+# for Saturn, also can calculate the ring inclination (earth_tilt)
+# 2011/06/02
+
+from ephem import *
+from extract_source import *
+import numpy as np
+import sys, os.path
+from datetime import datetime
+
+
+#from astropy.constants import c, h, k_B
+c   = 299792458.0       # speed of light SI
+h   = 6.62606957e-34    # Planck constant SI
+k_B = 1.3806488e-23     # Boltzmann constant SI
+
+import astropy.units as u
+from astropy.time import Time
+from astropy.coordinates import SkyCoord, EarthLocation, Galactic
+from astropy.utils import iers
+# the default IERS url is not working: http://maia.usno.navy.mil/ser7/finals2000A.all
+iers.conf.iers_auto_url = 'ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals2000A.all'
+
+def LSRvel(ra, dec, obstime, loc='taroge4'):
+    '''
+    calculate the velocity correction between MLO and the LSR
+    toward the RA,DEC (epoch) direction at time_str
+
+    give the coordinates in J2000!
+    ra should be a string in hourangle
+    dec should be a string in DMS
+    obstime should be a string in 'yyyy-mm-dd HH:MM:SS'
+        or can be a datetime object, or astropy.time.Time object
+
+    return the velocity correction in km/s
+    positive velocity means the observed freq is higher than rest freq (blue shifted)
+    negative velocity means the observed freq is lower than rest freq (red shifted)
+    '''
+
+    if (loc == 'mlo'):
+        loc = EarthLocation.from_geodetic(lat=19.5363*u.deg, lon=-155.5753*u.deg, height=3426.*u.m)
+    elif (loc == 'atca'):
+        loc = EarthLocation.from_geodetic(lat=-30.3128846*u.deg, lon=149.5489798*u.deg, height=236.87*u.m)
+    elif (loc == 'taroge4'):
+        #loc = EarthLocation.from_geodetic(lat=121.7785*u.deg, lon=24.4066*u.deg, height=300.0*u.m)  # arbitrary placeholder near Nanao
+        loc = EarthLocation.from_geodetic(lat=121.777984392128*u.deg, lon=24.3827607578448*u.deg, height=707.86*u.m)  # exact number from Yaocheng
+
+    sc = SkyCoord(ra=ra, dec=dec, unit=('hourangle', 'degree'), obstime=obstime, location=loc)
+    vbsr = sc.radial_velocity_correction().to('km/s')
+    
+    scg = sc.transform_to(Galactic)
+    l, b = scg.l.to(u.rad).value, scg.b.to(u.rad).value
+
+    bary2lsr = 11.1 * np.cos(l)*np.cos(b) + 12.24 * np.sin(l)*np.cos(b) + 7.25 * np.sin(b)
+    #bary2lsr =  9.0 * np.cos(l)*np.cos(b) + 12.00 * np.sin(l)*np.cos(b) + 7.00 * np.sin(b)
+
+    vlsr = vbsr.value + bary2lsr
+
+    return vlsr
+
+
+def obsBody(body, site='taroge4', time=datetime.utcnow(), epoch='2000', DB={}, retOBS=False, **kwargs):
+        ## define planet to calculate
+        if   (body.lower() in 'jupiter'):
+            b = Jupiter()
+        elif (body.lower() in 'saturn' ):
+            b = Saturn()
+        elif (body.lower() in 'mars'   ):
+            b = Mars()
+        elif (body.lower() in 'neptune'):
+            b = Neptune()
+        elif (body.lower() in 'uranus'):
+            b = Uranus()
+        elif (body.lower() in 'venus'  ):
+            b = Venus()
+        elif (body.lower() in 'pluto'  ):
+            b = Pluto()
+        elif (body.lower() in 'mercury'):
+            b = Mercury()
+        elif (body.lower() in 'moon'   ):
+            b = Moon()
+        elif (body.lower() in 'sun'    ):
+            b = Sun()
+        elif (DB.get(body)):
+            tmp = DB[body]
+            b = FixedBody()
+            b._ra  = hours(tmp['RAs'])
+            b._dec = degrees(tmp['DECs'])
+            b._epoch = '2000'
+        else:
+            print('unknown PLANET =', body)
+            sys.exit()
+
+
+        ## define observer
+        obs = obsSite(site)
+        obs.date        = time      # this is variable now
+        # can omit epoch if using J2000 (is the default)
+        obs.epoch       = epoch
+        #mlo.epoch      = '2000/1/1.5'
+        if (kwargs.get('elim')):
+            obs.horizon = kwargs['elim']
+
+        # Note:
+        # epoch matters only if output is astrometric coordinates (not apparent coordinates)
+        # astrometric coordinates = a_ra, a_dec (will use epoch setting) --> geocentric
+        # apparent geocentric     = g_ra, g_dec (will ignore epoch setting)
+        # apparent topocentric    = ra, dec     (also will ignore epoch settting)
+
+
+        ## start calculation for each line
+        b.compute(obs)
+
+        # (b.ra, b.dec) = apparent topocentric
+        # (b.a_ra, b.a_dec) = astrometric
+        # b.size = angular diameter
+        # b.earth_tilt = ring opening angle toward earth (for Saturn only?)
+
+        if (retOBS):
+            return b, obs
+        else:
+            return b
+
+
+def obsSite(site='taroge4'):
+        ## define observer
+        # Mauna Loa Observatory site information taken from AMiBA Wiki
+        obs = Observer()
+        if (site == 'mlo'):
+            obs.long        = '-155.5753'
+            obs.lat         = '+19.5363'
+            obs.elevation   = 3426.0
+        elif (site == 'taroge4'):
+            obs.long        = '121.7785'
+            obs.lat         = '+24.4066'
+            obs.elevation   = 300.0
+        elif (site == 'cafe'):
+            obs.long        = '121.5380'
+            obs.lat         = '+25.2980'
+            obs.elevation   = 10.0
+        elif (site == 'fushan1'):   # site 1, 220310
+            obs.long        = '121.5807'
+            obs.lat         = '+24.7589'
+            obs.elevation   = 650.0
+        elif (site == 'fushan6'):   # site 6, 230418
+            obs.long        = '121.5817'
+            obs.lat         = '+24.7564'
+            obs.elevation   = 650.0
+        elif (site == 'longtien'):
+            obs.long        = '120.8244'
+            obs.lat         = '+23.7147'
+            obs.elevation   = 850.0
+        elif (site == 'lyudao'):
+            obs.long        = '121.5007'
+            obs.lat         = '+22.6750'
+            obs.elevation   = 15.0
+        elif (site == 'dongsha'):
+            obs.long        = '116.7274'
+            obs.lat         = '+20.10752'
+            obs.elevation   = 5.0
+        elif (site == 'iaa'):
+            obs.long        = '121.5377'
+            obs.lat         = '+25.0212'
+            obs.elevation   = 50.0
+        elif (site == 'pahala'):
+            obs.long        = '-155.4686'
+            obs.lat         = '+19.2497'
+            obs.elevation   = 542.5
+        obs.temp        = 0         # set temp and pressure to 0 to ignore atmosphere correction
+        obs.pressure    = 0
+        #obs.date       = time      # this is variable now
+        # can omit epoch if using J2000 (is the default)
+        #obs.epoch      = epoch
+        #obs.epoch      = '2000/1/1.5'
+
+        # Note:
+        # epoch matters only if output is astrometric coordinates (not apparent coordinates)
+        # astrometric coordinates = a_ra, a_dec (will use epoch setting) --> geocentric
+        # apparent geocentric     = g_ra, g_dec (will ignore epoch setting)
+        # apparent topocentric    = ra, dec     (also will ignore epoch settting)
+
+        return obs
+
+
+def solbody(body):
+        ## canonicalize the body name
+        if   (body.lower() in 'jupiter'):
+            name = 'jupiter'
+        elif (body.lower() in 'saturn' ):
+            name = 'saturn'
+        elif (body.lower() in 'mars'   ):
+            name = 'mars'
+        elif (body.lower() in 'neptune'):
+            name = 'neptune'
+        elif (body.lower() in 'uranus'):
+            name = 'uranus'
+        elif (body.lower() in 'venus'  ):
+            name = 'venus'
+        elif (body.lower() in 'pluto'  ):
+            name = 'pluto'
+        elif (body.lower() in 'mercury'):
+            name = 'mercury'
+        elif (body.lower() in 'moon'   ):
+            name = 'moon'
+        elif (body.lower() in 'sun'    ):
+            name = 'sun'
+        else:
+            print('unknown PLANET =', body)
+            sys.exit()
+
+        return name
+
+
+if (__name__ == '__main__'):
+
+    DB0 = loadDB
+
+    body = 'sun'
+    b = obsBody(body, DB=DB0, site='mlo')
+    print(b.ra, b.dec)
+ 
