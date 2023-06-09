@@ -37,11 +37,9 @@ def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64):
         for k in range(bpp):
             bit8 = arr[k]
             bit4_i = bit8 & 0x0f
-            #ai = toSigned(bit4_i, 4)
-            aq = toSigned(bit4_i, 4)
+            ai = toSigned(bit4_i, 4)
             bit4_q = (bit8 & 0xf0) >> 4
-            #aq = toSigned(bit4_q, 4)
-            ai = toSigned(bit4_q, 4)
+            aq = toSigned(bit4_q, 4)
             spec[k] = ai + 1.j*aq
 
     elif (bitwidth==16):

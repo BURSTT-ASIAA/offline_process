@@ -13,15 +13,17 @@ import warnings
 from packet_func import *
 
 
-bitwidth = 4
-
+ppf = 2     # packet-per-frame
 bpp = 8192  # bytes per packet (payload size)
-#fpgaclock = 401.066667e6
-fpgaclock = 400.e6
+pchan = 512 # num of spec.channel in a packet
+nchan = int(ppf * pchan)    # total num of spec.channel
+fpgaclock = 401.066667e6
 
 bytePayload = 8192      # packet payload size in bytes
 byteHeader  = 64        # packet header size in bytes
 packBlock   = 1000000   # num of packets in a block
+byteBMBlock = packBlock//8  # bitmap size of a block in bytes
+byteBlock   = (bytePayload+byteHeader)*packBlock + byteBMBlock  # block size in bytes
 autoblock = True
 autop0    = True
 
@@ -46,19 +48,15 @@ options are:
     -c clock_speed  # the estinmated FPGA clock speed in MHz (%.0f)
     -b byte_per_packet  # change the byte_per_packet variable (payload only)
                         # (%d)
-    --16bit         # set this option if the data is from 16bit format
-                    # (default is the 4bit format)
     --p0 pack0      # the starting packet number
                     # disable autop0 (automatic switch block if p0=0 is bad)
-    --block_len block_len
-                    # number of packets in a block (%d)
     --nB nBlock     # the number of block (1M packets/block) in the binary file
                     # override auto-block
     --no-ab         # disable auto-determine of nBlock (auto-block)
     --ylim YMIN YMAX    # set the plot range in y
     -v              # turn on some diagnostic info
 
-''' % (pg, npack, fpgaclock/1e6, bpp, packBlock)
+''' % (pg, npack, fpgaclock/1e6, bpp)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -73,13 +71,9 @@ while inp:
         fpgaclock = tmp * 1e6
     elif (k == '-b'):
         bpp = int(inp.pop(0))
-    elif (k == '--16bit'):
-        bitwidth = 16
     elif (k == '--p0'):
         pack0 = int(inp.pop(0))
         autop0 = False
-    elif (k == '--block_len'):
-        packBlock = int(inp.pop(0))
     elif (k == '--nB'):
         nBlock = int(inp.pop(0))
         autoblock = False
@@ -96,16 +90,6 @@ while inp:
     else:
         files.append(k)
 
-byteBMBlock = packBlock//8  # bitmap size of a block in bytes
-byteBlock   = (bytePayload+byteHeader)*packBlock + byteBMBlock  # block size in bytes
-
-if (bitwidth==4):
-    ppf = 2
-    pchan = 512
-elif (bitwidth==16):
-    ppf = 8     # packet-per-frame
-    pchan = 128 # num of spec.channel in a packet
-nchan = int(ppf * pchan)    # total num of spec.channel
 
 print(files)
 for fin in files:
@@ -136,7 +120,7 @@ for fin in files:
     if (nBlock == 0):
         print('bitmap info not used.')
 
-    fullBM = loadFullbitmap(fh, nBlock, blocklen=packBlock)
+    fullBM = loadFullbitmap(fh, nBlock)
     p0 = pack0
     ap = autop0
     while (ap):
@@ -149,17 +133,14 @@ for fin in files:
     if (verbose):
         print('pack0:', p0)
 
-    bitmap = fullBM[p0:p0+npack]
-
-    #tick, spec = loadSpec(fh, p0, npack, bpp, ppf, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
-    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth)
+    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, nBlock=nBlock, verbose=verbose)
     adata2d = np.abs(spec).mean(axis=0)
 
     fh.close()
 
 
     png1 = '%s.png' % fin
-    f1, sub1 = plt.subplots(4,4,figsize=(15,9), sharex=True, sharey=True)
+    f1, sub1 = plt.subplots(4,4,figsize=(12,9), sharex=True, sharey=True)
     s1 = sub1.flatten()
 
     warnings.filterwarnings('ignore')
@@ -175,7 +156,7 @@ for fin in files:
         pk = y.max()
         ipk = np.ma.argmax(y)
         fpk = freq[ipk]
-        ax.text(0.05, 0.80, 'peak pow:%.2f\nch:%d\nfreq:%.2fMHz'%(pk,ipk,fpk), transform=ax.transAxes, va='top')
+        ax.text(0.05, 0.80, 'peak pow:%.0f\nch:%d\nfreq:%.0fMHz'%(pk,ipk,fpk), transform=ax.transAxes, va='top')
         ax.text(0.95, 0.90, title, transform=ax.transAxes, ha='right')
         if (ylim is not None):
             ax.set_ylim(ylim)

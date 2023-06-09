@@ -22,6 +22,8 @@ fpgaclock = 400.e6
 bytePayload = 8192      # packet payload size in bytes
 byteHeader  = 64        # packet header size in bytes
 packBlock   = 1000000   # num of packets in a block
+byteBMBlock = packBlock//8  # bitmap size of a block in bytes
+byteBlock   = (bytePayload+byteHeader)*packBlock + byteBMBlock  # block size in bytes
 autoblock = True
 autop0    = True
 
@@ -50,15 +52,13 @@ options are:
                     # (default is the 4bit format)
     --p0 pack0      # the starting packet number
                     # disable autop0 (automatic switch block if p0=0 is bad)
-    --block_len block_len
-                    # number of packets in a block (%d)
     --nB nBlock     # the number of block (1M packets/block) in the binary file
                     # override auto-block
     --no-ab         # disable auto-determine of nBlock (auto-block)
     --ylim YMIN YMAX    # set the plot range in y
     -v              # turn on some diagnostic info
 
-''' % (pg, npack, fpgaclock/1e6, bpp, packBlock)
+''' % (pg, npack, fpgaclock/1e6, bpp)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -78,8 +78,6 @@ while inp:
     elif (k == '--p0'):
         pack0 = int(inp.pop(0))
         autop0 = False
-    elif (k == '--block_len'):
-        packBlock = int(inp.pop(0))
     elif (k == '--nB'):
         nBlock = int(inp.pop(0))
         autoblock = False
@@ -95,9 +93,6 @@ while inp:
         sys.exit('unknown option: %s'%k)
     else:
         files.append(k)
-
-byteBMBlock = packBlock//8  # bitmap size of a block in bytes
-byteBlock   = (bytePayload+byteHeader)*packBlock + byteBMBlock  # block size in bytes
 
 if (bitwidth==4):
     ppf = 2
@@ -136,7 +131,7 @@ for fin in files:
     if (nBlock == 0):
         print('bitmap info not used.')
 
-    fullBM = loadFullbitmap(fh, nBlock, blocklen=packBlock)
+    fullBM = loadFullbitmap(fh, nBlock)
     p0 = pack0
     ap = autop0
     while (ap):
@@ -149,10 +144,7 @@ for fin in files:
     if (verbose):
         print('pack0:', p0)
 
-    bitmap = fullBM[p0:p0+npack]
-
-    #tick, spec = loadSpec(fh, p0, npack, bpp, ppf, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
-    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth)
+    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
     adata2d = np.abs(spec).mean(axis=0)
 
     fh.close()

@@ -15,6 +15,9 @@ else:
     bindir = '%s/local/bin' % home
 if (hostname == 'frblab3' or hostname=='frblab1'):
     bindir = '/data/kylin/bin'
+if ('burstt' in hostname):
+    bindir = '/data/kylin/bin'
+
 fcat0 = '%s/YTLA_CAL.csv' % bindir
 #fcat0 = 'YTLA_CAL.csv'
 
