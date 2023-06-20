@@ -797,10 +797,9 @@ for fvis in files:
             ax.set_xlabel('freq (MHz)')
             ax.set_ylabel('vis.phase (rad)')
             ax.set_ylim([-3.2,3.2])
-            #for j in range(2):
-            for j,jj in enumerate([ai,aj]):
+            for j in range(2):
                 ax = s1[0,j]
-                ax.set_title('Ant%d'%jj)
+                ax.set_title('ch%d'%j)
                 ax.set_xlabel('freq (MHz)')
                 ax.set_ylabel('power (dBm)')
 
@@ -816,14 +815,13 @@ for fvis in files:
                 ax = s1[1,1]
                 ax.plot(freq, np.ma.angle(spec[i]), color=cc, linestyle='none', marker='.')
 
-                #for j in range(2):
-                for j,jj in enumerate([ai,aj]):
+                for j in range(2):
                     ax = s1[0,j]
                     if (j==1):
                         lab = '%04.0fsec'%sec[i]
                     else:
                         lab = ''
-                    ax.plot(freq, toPower(nft[i,jj]), color=cc, label=lab)
+                    ax.plot(freq, toPower(nft[i,j]), color=cc, label=lab)
 
             med_coeff = np.ma.median(np.ma.abs(coeff), axis=1)
             par2 = np.percentile(med_coeff, [15,50,85])
@@ -925,7 +923,6 @@ for fvis in files:
                 medns = np.median(ns_diff)
                 ax.scatter(tt, ns_diff, marker='*', label='data-model')
                 ax.text(0.05, 0.90, 'med_dtau: %.3f ns'%medns, transform=ax.transAxes)
-                ax.set_ylim(-10, 60)
                 savTauMed.append(medns)
             ax.set_xlabel('time')
             ax.set_ylabel('src_delay (ns)')

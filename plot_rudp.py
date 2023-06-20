@@ -21,7 +21,8 @@ fpgaclock = 400.e6
 
 bytePayload = 8192      # packet payload size in bytes
 byteHeader  = 64        # packet header size in bytes
-packBlock   = 1000000   # num of packets in a block
+#packBlock   = 1000000   # num of packets in a block
+packBlock   = 800000   # num of packets in a block
 autoblock = True
 autop0    = True
 
@@ -50,7 +51,7 @@ options are:
                     # (default is the 4bit format)
     --p0 pack0      # the starting packet number
                     # disable autop0 (automatic switch block if p0=0 is bad)
-    --block_len block_len
+    --blocklen blocklen
                     # number of packets in a block (%d)
     --nB nBlock     # the number of block (1M packets/block) in the binary file
                     # override auto-block
@@ -78,7 +79,7 @@ while inp:
     elif (k == '--p0'):
         pack0 = int(inp.pop(0))
         autop0 = False
-    elif (k == '--block_len'):
+    elif (k == '--blocklen'):
         packBlock = int(inp.pop(0))
     elif (k == '--nB'):
         nBlock = int(inp.pop(0))

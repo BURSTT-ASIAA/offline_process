@@ -24,8 +24,7 @@ autoblock = True
 autop0    = True
 bytePayload = 8192      # packet payload size in bytes
 byteHeader  = 64        # packet header size in bytes
-#packBlock   = 1000000   # num of packets in a block
-packBlock   = 800000   # num of packets in a block
+packBlock   = 1000000   # num of packets in a block
 byteBMBlock = packBlock//8  # bitmap size of a block in bytes
 byteBlock   = (bytePayload+byteHeader)*packBlock + byteBMBlock  # block size in bytes
 verbose     = False
@@ -64,11 +63,8 @@ syntax:
     --p0 pack0      # specify the pack offset
                     # disable autop0
 
-    --blocklen blocklen
-                    # specify the block length in packets
-                    # (%d)
-
     --nB nBlock     # specify the length of the binary file in nBlock
+                    # (1 Block = 1M packets)
                     # without this parameter, the bitmap can not be loaded
                     # default is to determine the nBlock automatically
 
@@ -79,7 +75,7 @@ syntax:
 
     -v              # enable more message
 
-''' % (pg, nPack, packBlock, fout)
+''' % (pg, nPack, fout)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -104,8 +100,6 @@ while (inp):
     elif (k == '--p0'):
         pack0 = int(inp.pop(0))
         autop0 = False
-    elif (k == '--blocklen'):
-        packBlock = int(inp.pop(0))
     elif (k == '--nB'):
         nBlock = int(inp.pop(0))
     elif (k == '--no-aB'):
@@ -173,7 +167,7 @@ grpFiles = []
 for gi in range(nGrp):
     idir = dirs[gi]
     if (os.path.isdir(idir)):
-        files = glob('%s/*.bin' % idir)
+        files = glob('%s/*.fpga.bin' % idir)
         files.sort()
     elif (os.path.isfile(idir)):
         files = [idir]
@@ -233,7 +227,7 @@ for fi in range(nFile):
                 fin = files[gi]
 
                 fh = open(fin, 'rb')
-                fullBM = loadFullbitmap(fh, nBlock, blocklen=packBlock)
+                fullBM = loadFullbitmap(fh, nBlock)
                 fh.close()
 
                 ap = True
@@ -280,12 +274,9 @@ for fi in range(nFile):
         fh = open(fin, 'rb')
 
         t1 = time.time()
-        BM = loadFullbitmap(fh, nBlock, blocklen=packBlock)
-        bitmap = BM[p0:p0+nPack]
         print('elapsed time: %.3fsec'%(t1-t0))
         #tick, tmpspec = loadSpec(fh, p0, nPack, nBlock=nBlock, verbose=verbose)
-        #tick, tmpspec = loadSpec(fh, p0, nPack, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
-        tick, tmpspec = loadSpec(fh, p0, nPack, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth)
+        tick, tmpspec = loadSpec(fh, p0, nPack, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
         t2 = time.time()
         print('   %d packets loaded in %.2fsec'%(nPack, t2-t1))
         fh.close()
