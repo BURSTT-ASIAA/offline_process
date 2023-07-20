@@ -13,8 +13,7 @@ import warnings
 from packet_func import *
 
 
-bitwidth = 4    # binary bit width
-hdver    = 1    # header version
+bitwidth = 4
 
 bpp = 8192  # bytes per packet (payload size)
 #fpgaclock = 401.066667e6
@@ -50,8 +49,6 @@ options are:
                         # (%d)
     --16bit         # set this option if the data is from 16bit format
                     # (default is the 4bit format)
-    --hd VER        # header version. 1 or 2
-                    # (%d)
     --p0 pack0      # the starting packet number
                     # disable autop0 (automatic switch block if p0=0 is bad)
     --blocklen blocklen
@@ -62,7 +59,7 @@ options are:
     --ylim YMIN YMAX    # set the plot range in y
     -v              # turn on some diagnostic info
 
-''' % (pg, npack, fpgaclock/1e6, bpp, hdver, packBlock)
+''' % (pg, npack, fpgaclock/1e6, bpp, packBlock)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -79,8 +76,6 @@ while inp:
         bpp = int(inp.pop(0))
     elif (k == '--16bit'):
         bitwidth = 16
-    elif (k == '--hd'):
-        hdver = int(inp.pop(0))
     elif (k == '--p0'):
         pack0 = int(inp.pop(0))
         autop0 = False
@@ -125,15 +120,9 @@ for fin in files:
 
     nframe = npack // ppf     # the new spec2k_x4 bitcode outputs 4 packets per frame, each packet is 512ch, and a frame is 2048ch
     chan = np.arange(nchan)
-    #samprate = fpgaclock * 2.
-    #freq0 = np.fft.fftfreq(nchan*2, d=1/samprate) + fpgaclock
-    #freq0 = np.fft.fftfreq(nchan, d=1/fpgaclock)
-    #freq0 = np.fft.fftshift(freq0) + fpgaclock*1.5
-    #samprate = fpgaclock * 4.
-    #freq0 = np.fft.fftfreq(nchan*4, d=1/samprate)
-    #freq = freq0[nchan:nchan*2] / 1e6
-    freq = np.linspace(0, fpgaclock, nchan, endpoint=False) + fpgaclock
-    freq /= 1e6
+    samprate = fpgaclock * 2.
+    freq0 = np.fft.fftfreq(nchan*2, d=1/samprate) + fpgaclock
+    freq = freq0[:nchan] / 1e6
     #print(freq)
     xlim = [freq[0], freq[-1]]
     print('freq[0], freq[-1]:', freq[0], freq[-1])
@@ -164,7 +153,7 @@ for fin in files:
     bitmap = fullBM[p0:p0+npack]
 
     #tick, spec = loadSpec(fh, p0, npack, bpp, ppf, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
-    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver)
+    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth)
     adata2d = np.abs(spec).mean(axis=0)
 
     fh.close()

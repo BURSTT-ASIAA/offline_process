@@ -13,31 +13,19 @@ def toSigned(v, bits):
     mask = 1 << (bits-1)
     return -(v & mask) | (v & (mask-1))
 
-def headerUnpack(header, order_off=0, verbose=0, hdver=1):
-    if (hdver == 1):
-        chk = header[5:8]
-        if (chk != b'\xcc\xbb\xaa'):
-            if (verbose > 0):
-                print('packet read error. abort!')
-            return None
-        clk = header[0] + (header[1]<<8) + (header[2]<<16) + (header[3]<<24) + (header[4]<<32)
-        pko = header[8] + order_off
-    elif (hdver == 2):
-        chk = header[56:64]
-        if (chk != b'BURSTTTT'):
-            if (verbose > 0):
-                print('packet read error. abort!')
-            return None
-        clk = 0
-        for i in range(8):
-            clk += header[7-i]
-            clk *= 256
-        pko = header[36] + order_off
+def headerUnpack(header, order_off=0, verbose=0):
+    chk = header[5:8]
+    if (chk != b'\xcc\xbb\xaa'):
+        if (verbose > 0):
+            print('packet read error. abort!')
+        return None
+    clk = header[0] + (header[1]<<8) + (header[2]<<16) + (header[3]<<24) + (header[4]<<32)
+    pko = header[8] + order_off
     return clk, pko
 
-def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1):
+def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64):
     header = buf[:hdlen]
-    tmp = headerUnpack(header, order_off=order_off, hdver=hdver)
+    tmp = headerUnpack(header, order_off=order_off)
     if (tmp is None):
         return None
     else:
@@ -73,7 +61,7 @@ def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1):
     return clk, pko, spec
 
 
-def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1):
+def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4):
     '''
     load npack blocks of binary data from the open filehandle
     starting from pack0. each block is of pack_len bytes.
@@ -105,7 +93,7 @@ def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1)
     order = np.ma.array(np.zeros(npack, dtype=int), mask=False)
     for i in range(npack):
         buf = fh.read(pack_len)
-        tmp = packetUnpack(buf, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver)
+        tmp = packetUnpack(buf, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth)
         if (tmp is None):
             data0.mask[i] = True
             clock.mask[i] = True
@@ -229,7 +217,7 @@ def formSpec(data0, clock, order, ppf, nAnt=16, grp=2, nChan=1024, bitmap=None, 
     return data_tick, antSpec
 
 
-def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=1):
+def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4):
     '''
     a wrapper of loadBatch + formSpec
     input:
@@ -276,7 +264,7 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
         grp = 1
         ppf = 8
 
-    data0, clock, order = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver)
+    data0, clock, order = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth)
     tmp = formSpec(data0, clock, order, ppf, nAnt=nAnt, grp=grp, bitmap=bitmap, verbose=verbose)
 
     if (tmp is not None):

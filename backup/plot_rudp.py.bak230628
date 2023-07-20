@@ -125,15 +125,9 @@ for fin in files:
 
     nframe = npack // ppf     # the new spec2k_x4 bitcode outputs 4 packets per frame, each packet is 512ch, and a frame is 2048ch
     chan = np.arange(nchan)
-    #samprate = fpgaclock * 2.
-    #freq0 = np.fft.fftfreq(nchan*2, d=1/samprate) + fpgaclock
-    #freq0 = np.fft.fftfreq(nchan, d=1/fpgaclock)
-    #freq0 = np.fft.fftshift(freq0) + fpgaclock*1.5
-    #samprate = fpgaclock * 4.
-    #freq0 = np.fft.fftfreq(nchan*4, d=1/samprate)
-    #freq = freq0[nchan:nchan*2] / 1e6
-    freq = np.linspace(0, fpgaclock, nchan, endpoint=False) + fpgaclock
-    freq /= 1e6
+    samprate = fpgaclock * 2.
+    freq0 = np.fft.fftfreq(nchan*2, d=1/samprate) + fpgaclock
+    freq = freq0[:nchan] / 1e6
     #print(freq)
     xlim = [freq[0], freq[-1]]
     print('freq[0], freq[-1]:', freq[0], freq[-1])

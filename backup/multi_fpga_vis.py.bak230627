@@ -31,7 +31,6 @@ byteBlock   = (bytePayload+byteHeader)*packBlock + byteBMBlock  # block size in 
 verbose     = False
 bitwidth    = 4
 ppf         = 2
-hdver       = 1
 
 pack0 = 0               # packet offset
 nPack = 1000            # num of packets to read
@@ -61,9 +60,6 @@ syntax:
 
     --16bit         # specify that data is in 16bit format
                     # (default is in 4bit format)
-    
-    --hd VER        # header version
-                    # (%d)
 
     --p0 pack0      # specify the pack offset
                     # disable autop0
@@ -83,7 +79,7 @@ syntax:
 
     -v              # enable more message
 
-''' % (pg, nPack, hdver, packBlock, fout)
+''' % (pg, nPack, packBlock, fout)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -105,8 +101,6 @@ while (inp):
     elif (k == '--16bit'):
         bitwidth = 16
         ppf = 8
-    elif (k == '--hd'):
-        hdver = int(inp.pop(0))
     elif (k == '--p0'):
         pack0 = int(inp.pop(0))
         autop0 = False
@@ -291,7 +285,7 @@ for fi in range(nFile):
         print('elapsed time: %.3fsec'%(t1-t0))
         #tick, tmpspec = loadSpec(fh, p0, nPack, nBlock=nBlock, verbose=verbose)
         #tick, tmpspec = loadSpec(fh, p0, nPack, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
-        tick, tmpspec = loadSpec(fh, p0, nPack, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver)
+        tick, tmpspec = loadSpec(fh, p0, nPack, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth)
         t2 = time.time()
         print('   %d packets loaded in %.2fsec'%(nPack, t2-t1))
         fh.close()

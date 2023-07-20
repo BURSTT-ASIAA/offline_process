@@ -173,11 +173,6 @@ def obsSite(site='taroge4'):
             obs.long        = '-155.4686'
             obs.lat         = '+19.2497'
             obs.elevation   = 542.5
-        elif (site == 'tnro'):
-            obs.long         = '99.216560'
-            obs.lat         = '+18.863546'
-            obs.elevation   = 390.0
-
         #obs.date       = time      # this is variable now
         # can omit epoch if using J2000 (is the default)
         #obs.epoch      = epoch

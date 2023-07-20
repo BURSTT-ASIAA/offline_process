@@ -24,8 +24,6 @@ aconf   = None
 ai      = 0
 aj      = 1
 srcflux = 0.
-f410    = 0.
-f610    = 0.
 do_fitClkOff = False
 maxClkOff = 20.     # clock offset search range (+/- maxClkOff)
 dClkOff = 0.01      # step in clock offset search
@@ -60,11 +58,6 @@ options are:
                     # (default: %s)
 
     --flux JY       # specify the source flux in Jy for SEFD calculation
-    --interp F410 F610
-                    # instead of specifying a fixed flux
-                    # specify the (Solar) flux at both 410MHz and 610MHz
-                    # linear interpolation is used to estimate the flux
-                    # (in Jy)   Note: overrides --flux
 
     --rf MIN MAX    # RF range to use for time plot
                     # (both default to 0, for using the full range)
@@ -123,9 +116,6 @@ while (inp):
         aj = int(inp.pop(0))
     elif (k == '--flux'):
         srcflux = float(inp.pop(0))
-    elif (k == '--interp'):
-        f410 = float(inp.pop(0))
-        f610 = float(inp.pop(0))
     elif (k == '--gant'):
         gant = float(inp.pop(0))
     elif (k == '--fit'):
@@ -175,8 +165,6 @@ else:
     antXYZ = np.loadtxt(aconf, usecols=(1,2,3), ndmin=2)
 
 G0 = 10.**(gant/10.)
-
-
 
 
 for fvis in files:
@@ -252,12 +240,6 @@ for fvis in files:
             if (ai in trio and aj in trio):
                 bsel.append(b)
 
-    if (f410>0 and f610>0): # override srcflux setting
-        xs = (freq-410.)/(610.-410.)
-        srcflux2 = f410 + (f610-f410)*xs # shape (nChan,)
-    else:
-        srcflux2 = np.array([srcflux])
-
 
     if (do_fitClkOff):
         ## find and remove clock offset
@@ -329,13 +311,12 @@ for fvis in files:
     adoneh5(fvis, spec2, 'winSpecSub')
     adoneh5(fvis, coeff2, 'winCoeffSub')
 
-    xx = sec
-    yy = freq
-    X,Y = np.meshgrid(xx, yy, indexing='xy')
-    tt = tWin
-    T,Y = np.meshgrid(tt, yy, indexing='xy')
+
     ## plot waterfall of real/imag/amp/pha for spec1, spec2 and coeff1, coeff2
     if (do_check):
+        xx = sec
+        yy = freq
+        X,Y = np.meshgrid(xx, yy, indexing='xy')
 
         for b, p in enumerate(pairs):
             ai, aj = p
@@ -559,7 +540,6 @@ for fvis in files:
     fsel = np.logical_and(freq>=rfmin, freq<=rfmax)
     avgRF = freq[fsel].mean()
     lam = 2.998e8 / (avgRF * 1e6)   # wavelength in meters
-    flam = 2.998e8 / (freq * 1e6)
 
     chBW = fullBW*1e6 / nChan       # channel bandwidth in Hz
     tInt = 1./(fullBW*1e6) * nChan  # integration time per spectrum in sec
@@ -577,7 +557,6 @@ for fvis in files:
     scale2 = Aeff * scale / (2*1.38e-23) * 1e-26 # Tsys = (S/Jy / SNR) * scale2
     SEFD2 = Tsys0 / scale2
     print('fiducial SEFD (150K, %.2fm):'%lam, SEFD2/1e6, 'MJy')
-    fscale2 = flam**2 * G0 / (4.*np.pi) * scale / (2*1.38e-23) * 1e-26 
     
 
     ## plot spectral-avg phase vs time (all baselines)
@@ -643,7 +622,7 @@ for fvis in files:
     else:
         par = np.zeros((4, nChan))
 
-    if (False):
+    if (srcflux > 0 and False):
         f3, s3 = plt.subplots(1,1)
         png3 = '%s.SEFD.png' % fvis
         suptitle = 'file: %s, %.0fMHz, nWin=%d' % (fvis, fcen/1e6, nWin)
@@ -757,10 +736,6 @@ for fvis in files:
     ## plotting for each baseline
     savTsys = []
     savTsysmask = []
-    savTsys2D = []
-    savTsys2Dmask = []
-    savSEFD2D = []
-    savSEFD2Dmask = []
     savTauMod = []  # model delay
     savPhiMod = []  # model phase (600MHz)
     savTauRes = []  # residual delay
@@ -970,9 +945,7 @@ for fvis in files:
                 #if (do_model):
                 #    Tsys1 = srcflux / cfs_coeff.real * scale2
                 #    #ax.plot(tt, sigma_clip(Tsys1), 'b-', label='from real')
-                Tsys2 = srcflux2.mean() / med_coeff * scale2
-                # correct Tsys bias due to Solar flux
-                Tsys2 *= (1.-med_coeff)
+                Tsys2 = srcflux / med_coeff * scale2
                 cTsys2 = sigma_clip(Tsys2)
                 savTsys.append(cTsys2)
                 savTsysmask.append(cTsys2.mask)
@@ -994,75 +967,9 @@ for fvis in files:
             f2.savefig(png2)
             plt.close(f2)
 
-
-        ## 2D Tsys, SEFD plot
-        if (do_model):
-            Tsys2D = srcflux2.reshape((1,-1)) / np.ma.abs(coeff) * fscale2.reshape((1,-1))
-            # correct Tsys bias due to Solar flux
-            Tsys2D *= (1.-np.ma.abs(coeff))
-            # Tsys.shape = (nWin, nChan)
-            savTsys2D.append(Tsys2D)
-            savTsys2Dmask.append(Tsys2D.mask)
-            Tsys_time = np.ma.median(Tsys2D, axis=1)
-            Tsys_freq = np.ma.median(Tsys2D, axis=0)
-            Tsys_time2 = Tsys2D.min(axis=1)
-            Tsys_freq2 = Tsys2D.min(axis=0)
-            #vmin = Tsys2D.min()
-            #vmax = Tsys2D.max()
-            vmin = 0
-            vmax = 500
-
-            SEFD2D = Tsys2D / fscale2.reshape((1,-1))
-            savSEFD2D.append(SEFD2D)
-            savSEFD2Dmask.append(SEFD2D.mask)
-            SEFD2D_time = np.ma.median(SEFD2D, axis=1)
-            SEFD2D_freq = np.ma.median(SEFD2D, axis=0)
-            SEFD2D_time2 = SEFD2D.min(axis=1)
-            SEFD2D_freq2 = SEFD2D.min(axis=0)
-
-            fig = plt.figure(figsize=(12,9))
-            gs = fig.add_gridspec(2,2,width_ratios=(3,1),height_ratios=(1,3), wspace=0, hspace=0, left=0.08, right=0.95, bottom=0.08, top=0.92)
-            ax2D = fig.add_subplot(gs[1,0])
-            axtp = fig.add_subplot(gs[0,0])
-            axrt = fig.add_subplot(gs[1,1])
-
-            s = ax2D.pcolormesh(T,Y,Tsys2D.T, vmin=vmin, vmax=vmax)
-            ax2D.set_xlabel('time (UT)')
-            ax2D.set_ylabel('freq (MHz)')
-            #cb = plt.colorbar(s, ax=ax2D)
-            #cb.set_label('Tsys (K)')
-
-            axtp.plot(sec, Tsys_time, label='med')
-            axtp.plot(sec, Tsys_time2, linestyle=':', label='min')
-            axtp.legend()
-            axtp.set_ylabel('Tsys (K)')
-            axtp.set_ylim(vmin, vmax)
-            axtp.grid(axis='both')
-            axtp.set_xticks([])
-
-            axrt.plot(Tsys_freq, freq, label='med')
-            axrt.plot(Tsys_freq2, freq, linestyle=':', label='min')
-            axrt.legend()
-            axrt.set_xlabel('Tsys (K)')
-            axrt.set_xlim(vmin, vmax)
-            axtp.grid(axis='both')
-            axrt.set_yticks([])
-
-            fig.text(0.76, 0.80, 'med(Tsys_freq.min) = %.0f K'%np.ma.median(Tsys_freq2))
-            fig.text(0.76, 0.77, 'med(SEFD_freq.min) = %.2f MJy'%(np.ma.median(SEFD2D_freq2)/1e6))
-            fig.suptitle(suptitle)
-            png4 = '%s/bl%s.rf%d_%d.Tsys2D.png' % (odir, corr, rfmin, rfmax)
-            fig.savefig(png4)
-            plt.close(fig)
-
-
     if (do_model):
         savTsys = np.ma.array(savTsys, mask=savTsysmask)
         adoneh5(fvis, savTsys.T, 'winTsys')   # shape (nWin, nBl), after the transpose
-        savTsys2D = np.ma.array(savTsys2D, mask=savTsys2Dmask)
-        adoneh5(fvis, savTsys2D.transpose((1,0,2)), 'winTsys2D') # shape (nWin, nBl, nChan)
-        savSEFD2D = np.ma.array(savSEFD2D, mask=savSEFD2Dmask)
-        adoneh5(fvis, savSEFD2D.transpose((1,0,2)), 'winSEFD2D') # shape (nWin, nBl, nChan)
 
         savTauMod = np.array(savTauMod).T
         savPhiMod = np.array(savPhiMod).T
