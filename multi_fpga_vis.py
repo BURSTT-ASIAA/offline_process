@@ -264,7 +264,7 @@ for fi in range(nFile):
                         grp_p0[gi] = p0
 
             print(grp_p0)
-            if (np.any(grp_p0==-1)):
+            if (np.any(np.array(grp_p0)==-1)):
                 print('... autop0 failed. fallback to default pack0')
                 p0 = pack0
                 break

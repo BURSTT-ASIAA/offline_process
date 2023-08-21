@@ -991,7 +991,9 @@ for fvis in files:
                 #if (do_model):
                 #    Tsys1 = srcflux / cfs_coeff.real * scale2
                 #    #ax.plot(tt, sigma_clip(Tsys1), 'b-', label='from real')
-                Tsys2 = srcflux2.mean() / med_coeff * scale2 * att0
+                Tsys2 = srcflux2.mean() / med_coeff * scale2
+                if (do_model):
+                    Tsys2 *= att0
                 # correct Tsys bias due to Solar flux
                 Tsys2 *= (1.-med_coeff)
                 cTsys2 = sigma_clip(Tsys2)
