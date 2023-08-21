@@ -24,7 +24,8 @@ def headerUnpack(header, order_off=0, verbose=0, hdver=1):
         pko = header[8] + order_off
     elif (hdver == 2):
         chk = header[58:64]
-        if (chk != b'RSTTTT'):  # updated header_2
+        #if (chk != b'BURSTTTT'):
+        if (chk != b'RSTTTT'):
             if (verbose > 0):
                 print('packet read error. abort!')
             return None
@@ -49,11 +50,11 @@ def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1):
         for k in range(bpp):
             bit8 = arr[k]
             bit4_i = bit8 & 0x0f
-            ai = toSigned(bit4_i, 4)
-            #aq = toSigned(bit4_i, 4)
+            #ai = toSigned(bit4_i, 4)
+            aq = toSigned(bit4_i, 4)
             bit4_q = (bit8 & 0xf0) >> 4
-            aq = toSigned(bit4_q, 4)
-            #ai = toSigned(bit4_q, 4)
+            #aq = toSigned(bit4_q, 4)
+            ai = toSigned(bit4_q, 4)
             spec[k] = ai + 1.j*aq
 
     elif (bitwidth==16):
@@ -66,8 +67,8 @@ def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1):
             #bit16_q = (bit32 & 0xffff0000) >> 16
             #ai = toSigned(bit16_i, 16)
             #aq = toSigned(bit16_q, 16)
-            ai = arr[2*k]
-            aq = arr[2*k+1]
+            aq = arr[2*k]
+            ai = arr[2*k+1]
             spec[k] = ai + 1.j*aq
 
     return clk, pko, spec

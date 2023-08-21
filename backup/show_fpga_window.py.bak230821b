@@ -446,27 +446,14 @@ for fvis in files:
 
     if (tmp is None or do_tausrc):
         print('fitting source delay ...')
-        if (nInp==1):
-            ww=6.0
-            hh=4.5
-        elif(nInp<=4):
-            ww=4.0
-            hh=3.0
-        else:
-            ww=1.6
-            hh=1.2
-        figw=ww*(nInp-1)
-        figh=hh*(nInp-1)
 
         savTAU = []
         savPHI = []
-        for i in range(3):
-        #for i in range(nWin):
+        for i in range(nWin):
             tag = 't%08.1f' % sec[i]
             print('...',i,tag)
 
-            fig, s2d = blsubplots(na=nInp, figsize=(figw,figh), squeeze=False, sharey=True, sharex=True)
-            #fig, s2d = blsubplots(na=nInp, figsize=(12,9), squeeze=False, sharey=True, sharex=True)
+            fig, s2d = blsubplots(na=nInp, figsize=(12,9), squeeze=False, sharey=True, sharex=True)
             sub = []
             b = -1
             for ai in range(nInp-1):
@@ -558,7 +545,6 @@ for fvis in files:
 
             fig.tight_layout(rect=[0,0.03,1,0.95])
             fig.suptitle('%s, source delay, %s'%(fvis, tag))
-            fig.subplots_adjust(wspace=0, hspace=0)
             fig.savefig('%s/source_delay_%s.png'%(cdir, tag))
             plt.close(fig)
 
@@ -718,7 +704,6 @@ for fvis in files:
         print('max atten:', att0.max())
 
         unitVec  = np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)], ndmin=2).T
-        unitVec *= -1       # swapped definition
 
         if (blfit == 0):    # no fitting
             xyzparams = [antXYZ] 
@@ -927,6 +912,7 @@ for fvis in files:
 
             ## vs. time plot
             if (pp == 0):
+                continue    # skip this plot
                 png2 = '%s/bl%s.rf%d_%d.vs_time.png' % (odir, corr, rfmin, rfmax)
                 suptitle = 'file: %s, bl:%s\nRF=[%.1f,%.1f]'%(fvis, corr, rfmin, rfmax)
             else:
