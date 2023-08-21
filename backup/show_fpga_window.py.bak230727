@@ -42,18 +42,9 @@ angsep  = 3.
 poslim  = 0.5
 possep  = 0.1
 gant    = 6.5       # antenna max gain in dB
-Ehphw   = 35.       # E-plane half-power half width in deg
-Hhphw   = 70.       # H-plane half-power half width in deg
 dellim  = 150.
 delsep  = 0.5
 body    = 'sun'
-
-def atten(x, hphw):
-    '''
-    Gaussian attenuation (linear) given offset x and the half-power half width
-    '''
-    sig = hphw / np.sqrt(2.*np.log(2.))
-    return np.exp(-x**2/2./sig**2)
 
 
 usage = '''
@@ -691,18 +682,6 @@ for fvis in files:
         adoneh5(fvis, az, 'az')
         adoneh5(fvis, el, 'el')
 
-        ## convert the az,el to HA,DEC but assuming latitude=0
-        ## if the dipole is in N-S direction, then
-        ## DEC is the E-plane angle
-        ## HA is the H-plane angle
-        phi1 = 0
-        DEC = np.arcsin(np.sin(el)*np.sin(phi1)+np.cos(el)*np.cos(phi1)*np.cos(az))
-        HA  = np.arcsin((-1)*np.sin(az)*np.cos(el)/np.cos(DEC))
-        Eatt = atten(DEC/np.pi*180., Ehphw)
-        Hatt = atten(HA/np.pi*180., Hhphw)
-        att0 = Eatt*Hatt
-        print('max atten:', att0.max())
-
         unitVec  = np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)], ndmin=2).T
 
         if (blfit == 0):    # no fitting
@@ -991,7 +970,7 @@ for fvis in files:
                 #if (do_model):
                 #    Tsys1 = srcflux / cfs_coeff.real * scale2
                 #    #ax.plot(tt, sigma_clip(Tsys1), 'b-', label='from real')
-                Tsys2 = srcflux2.mean() / med_coeff * scale2 * att0
+                Tsys2 = srcflux2.mean() / med_coeff * scale2
                 # correct Tsys bias due to Solar flux
                 Tsys2 *= (1.-med_coeff)
                 cTsys2 = sigma_clip(Tsys2)
@@ -1019,7 +998,6 @@ for fvis in files:
         ## 2D Tsys, SEFD plot
         if (do_model):
             Tsys2D = srcflux2.reshape((1,-1)) / np.ma.abs(coeff) * fscale2.reshape((1,-1))
-            Tsys2D *= att0.reshape((-1,1))
             # correct Tsys bias due to Solar flux
             Tsys2D *= (1.-np.ma.abs(coeff))
             # Tsys.shape = (nWin, nChan)
@@ -1032,7 +1010,7 @@ for fvis in files:
             #vmin = Tsys2D.min()
             #vmax = Tsys2D.max()
             vmin = 0
-            vmax = 300
+            vmax = 500
 
             SEFD2D = Tsys2D / fscale2.reshape((1,-1))
             savSEFD2D.append(SEFD2D)
@@ -1062,10 +1040,8 @@ for fvis in files:
             axtp.grid(axis='both')
             axtp.set_xticks([])
 
-            if (np.count_nonzero(Tsys_freq.mask) < nChan):
-                axrt.plot(Tsys_freq, freq, label='med')
-            if (np.count_nonzero(Tsys_freq2.mask) < nChan):
-                axrt.plot(Tsys_freq2, freq, linestyle=':', label='min')
+            axrt.plot(Tsys_freq, freq, label='med')
+            axrt.plot(Tsys_freq2, freq, linestyle=':', label='min')
             axrt.legend()
             axrt.set_xlabel('Tsys (K)')
             axrt.set_xlim(vmin, vmax)

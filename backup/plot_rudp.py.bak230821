@@ -26,7 +26,6 @@ byteHeader  = 64        # packet header size in bytes
 packBlock   = 800000   # num of packets in a block
 autoblock = True
 autop0    = True
-order_off = 0
 
 
 npack  = 1000
@@ -60,7 +59,6 @@ options are:
     --nB nBlock     # the number of block (1M packets/block) in the binary file
                     # override auto-block
     --no-ab         # disable auto-determine of nBlock (auto-block)
-    --ooff OFF      # offset the packet_order
     --ylim YMIN YMAX    # set the plot range in y
     -v              # turn on some diagnostic info
 
@@ -93,8 +91,6 @@ while inp:
         autoblock = False
     elif (k == '--no-ab'):
         autoblock = False
-    elif (k == '--ooff'):
-        order_off = int(inp.pop(0))
     elif (k == '--ylim'):
         ymin = float(inp.pop(0))
         ymax = float(inp.pop(0))
@@ -184,7 +180,7 @@ for fii,fin in enumerate(files):
         continue
 
     #tick, spec = loadSpec(fh, p0, npack, bpp, ppf, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
-    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, order_off=order_off, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver)
+    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver)
     adata2d = np.abs(spec).mean(axis=0)
 
     fh.close()

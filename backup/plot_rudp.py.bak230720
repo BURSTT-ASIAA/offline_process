@@ -26,7 +26,6 @@ byteHeader  = 64        # packet header size in bytes
 packBlock   = 800000   # num of packets in a block
 autoblock = True
 autop0    = True
-order_off = 0
 
 
 npack  = 1000
@@ -60,7 +59,6 @@ options are:
     --nB nBlock     # the number of block (1M packets/block) in the binary file
                     # override auto-block
     --no-ab         # disable auto-determine of nBlock (auto-block)
-    --ooff OFF      # offset the packet_order
     --ylim YMIN YMAX    # set the plot range in y
     -v              # turn on some diagnostic info
 
@@ -93,8 +91,6 @@ while inp:
         autoblock = False
     elif (k == '--no-ab'):
         autoblock = False
-    elif (k == '--ooff'):
-        order_off = int(inp.pop(0))
     elif (k == '--ylim'):
         ymin = float(inp.pop(0))
         ymax = float(inp.pop(0))
@@ -117,14 +113,13 @@ elif (bitwidth==16):
     pchan = 128 # num of spec.channel in a packet
 nchan = int(ppf * pchan)    # total num of spec.channel
 
-nFile = len(files)
 print(files)
-for fii,fin in enumerate(files):
+for fin in files:
     if (not os.path.isfile(fin)):
         print('file not found: %s' % fin)
         continue
     else:
-        print('plotting', fin, '...(%d/%d)'%(fii+1, nFile))
+        print('plotting', fin)
 
     t1 = time.time()
 
@@ -143,14 +138,12 @@ for fii,fin in enumerate(files):
     xlim = [freq[0], freq[-1]]
     print('freq[0], freq[-1]:', freq[0], freq[-1])
 
-    skipfile = False
     fh = open(fin, 'rb')
 
     if (nBlock == 0 and autoblock):
         fsize = os.path.getsize(fin)
         nBlock = np.rint(fsize/byteBlock).astype(int)
         print('autoblock:', nBlock)
-    maxPack = nBlock * packBlock
 
     if (nBlock == 0):
         print('bitmap info not used.')
@@ -163,28 +156,15 @@ for fii,fin in enumerate(files):
         fvalid = float(np.count_nonzero(bitmap)/npack)
         if (fvalid < 0.1):  # arbitrary threshold
             p0 += packBlock
-            if (p0 >= maxPack):
-                print('no valid block, skip')
-                skipfile = True
-                break
         else:
             ap = False
-
     if (verbose):
         print('pack0:', p0)
 
     bitmap = fullBM[p0:p0+npack]
-    fvalid = float(np.count_nonzero(bitmap)/npack)
-    if (fvalid < 0.1):  # arbitrary threshold
-        print('no valid block. skip.')
-        skipfile = True
-
-    if (skipfile):
-        fh.close()
-        continue
 
     #tick, spec = loadSpec(fh, p0, npack, bpp, ppf, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
-    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, order_off=order_off, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver)
+    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver)
     adata2d = np.abs(spec).mean(axis=0)
 
     fh.close()

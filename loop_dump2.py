@@ -7,6 +7,7 @@ from subprocess import call
 
 #cmd0 = '~/work/c/sendsocket 127.0.0.1 8000'
 cmd0 = '/home/ubuntu/work/c/outrigger/sendsocket'      # no need to specify port anymore, fixed
+#cmd0 = '/home/ubuntu/work/c/thread_2/sendsocket'      # no need to specify port anymore, fixed
 
 inp = sys.argv[0:]
 pg  = inp.pop(0)

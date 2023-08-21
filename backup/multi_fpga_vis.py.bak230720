@@ -32,7 +32,6 @@ verbose     = False
 bitwidth    = 4
 ppf         = 2
 hdver       = 1
-order_off   = 0
 
 pack0 = 0               # packet offset
 nPack = 1000            # num of packets to read
@@ -79,8 +78,6 @@ syntax:
 
     --no-aB         # disable auto-Block
 
-    --ooff OFF      # set packet_order offset so that it starts from 0
-
     -o output_file  # specify the output file name
                     # default: %s
 
@@ -119,8 +116,6 @@ while (inp):
         nBlock = int(inp.pop(0))
     elif (k == '--no-aB'):
         autoblock = False
-    elif (k == '--ooff'):
-        order_off = int(inp.pop(0))
     elif (k == '-o'):
         fout = inp.pop(0)
     elif (k == '-v'):
@@ -132,10 +127,7 @@ while (inp):
 
 freq = np.linspace(flim[0], flim[1], nChan, endpoint=False)
 
-if (fout.endswith('.vish5')):
-    cdir = fout.replace('.vish5', '.check')
-else:
-    cdir = fout + '.check'
+cdir = fout.replace('.vish5', '.check')
 if (not os.path.isdir(cdir)):
     call('mkdir -p %s'%cdir, shell=True)
 
@@ -214,6 +206,7 @@ for fi in range(nFile):
 
     dt = (ftime - ftime0).total_seconds()
     print('(%d/%d)'%(fi+1,nFile), fin, 'dt=%dsec'%dt)
+    tsec.append(dt)
 
     files = [fin]   # nGrp == 1 covered
     if (nGrp > 1):
@@ -285,8 +278,7 @@ for fi in range(nFile):
     if (verbose):
         print('pack0:', p0)
 
-    antspec = np.ma.array(np.zeros((nPack//ppf, nInp, nChan), dtype=complex), mask=True)
-    validGrp = True
+    antspec = np.ma.array(np.zeros((nPack//ppf, nInp, nChan), dtype=complex), mask=False)
     ai = -1
     for gi in range(nGrp):
         gidx = grpIdx[dirs[gi]]
@@ -296,17 +288,10 @@ for fi in range(nFile):
         t1 = time.time()
         BM = loadFullbitmap(fh, nBlock, blocklen=packBlock)
         bitmap = BM[p0:p0+nPack]
-        fvalid = float(np.count_nonzero(bitmap)/nPack)
-        if (fvalid < 0.1):  # arbitrary threshold
-            print('no valid block. skip.')
-            validGrp = False
-            fh.close()
-            break   # break the loop of files in the group
-
         print('elapsed time: %.3fsec'%(t1-t0))
         #tick, tmpspec = loadSpec(fh, p0, nPack, nBlock=nBlock, verbose=verbose)
         #tick, tmpspec = loadSpec(fh, p0, nPack, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
-        tick, tmpspec = loadSpec(fh, p0, nPack, order_off=order_off, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver)
+        tick, tmpspec = loadSpec(fh, p0, nPack, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver)
         t2 = time.time()
         print('   %d packets loaded in %.2fsec'%(nPack, t2-t1))
         fh.close()
@@ -320,13 +305,7 @@ for fi in range(nFile):
         del tick, tmpspec
         gc.collect()
 
-    if (validGrp):
-        tsec.append(dt)
-    else:
-        del antspec
-        gc.collect()
-        continue    # skip the current window
-    
+
     #ampld = np.ma.abs(antspec).mean(axis=0)  # shape (nInp, nChan)
     ampld = np.ma.array(np.zeros((nInp, nChan)), mask=False)
     for ai in range(nInp):

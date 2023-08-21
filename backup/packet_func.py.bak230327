@@ -13,68 +13,60 @@ def toSigned(v, bits):
     mask = 1 << (bits-1)
     return -(v & mask) | (v & (mask-1))
 
-def headerUnpack(header, order_off=0, verbose=0, hdver=1):
-    if (hdver == 1):
-        chk = header[5:8]
-        if (chk != b'\xcc\xbb\xaa'):
-            if (verbose > 0):
-                print('packet read error. abort!')
-            return None
-        clk = header[0] + (header[1]<<8) + (header[2]<<16) + (header[3]<<24) + (header[4]<<32)
-        pko = header[8] + order_off
-    elif (hdver == 2):
-        chk = header[58:64]
-        #if (chk != b'BURSTTTT'):
-        if (chk != b'RSTTTT'):
-            if (verbose > 0):
-                print('packet read error. abort!')
-            return None
-        clk = 0
-        for i in range(8):
-            clk += header[7-i]
-            clk *= 256
-        pko = header[36] + order_off
+def headerUnpack(header, order_off=0, verbose=0):
+    chk = header[5:8]
+    if (chk != b'\xcc\xbb\xaa'):
+        if (verbose > 0):
+            print('packet read error. abort!')
+        return None
+    clk = header[0] + (header[1]<<8) + (header[2]<<16) + (header[3]<<24) + (header[4]<<32)
+    pko = header[8] + order_off
     return clk, pko
 
-def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1):
+def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64):
     header = buf[:hdlen]
-    tmp = headerUnpack(header, order_off=order_off, hdver=hdver)
+    tmp = headerUnpack(header, order_off=order_off)
     if (tmp is None):
         return None
     else:
         clk, pko = tmp
 
     if (bitwidth==4):
-        arr = struct.unpack('>%dB'%bpp, buf[hdlen:])
+        H2arr = struct.unpack('>%dH'%(bpp//2), buf[hdlen:])
         spec = np.zeros(bpp, dtype=np.complex64)
-        for k in range(bpp):
-            bit8 = arr[k]
-            bit4_i = bit8 & 0x0f
-            #ai = toSigned(bit4_i, 4)
-            aq = toSigned(bit4_i, 4)
-            bit4_q = (bit8 & 0xf0) >> 4
-            #aq = toSigned(bit4_q, 4)
-            ai = toSigned(bit4_q, 4)
-            spec[k] = ai + 1.j*aq
+        for k in range(int(bpp/2)):
+            bit32 = int(H2arr[k])   # convert half-integer to integer (32 bits)
+            for ii in range(2):
+                ## number-ii
+                if (ii == 0):
+                    bit8 = bit32 & 0x000000ff
+                elif (ii == 1):
+                    bit8 = (bit32 & 0x0000ff00) >> 8
+                #elif (ii == 2):
+                #    bit8 = (bit32 & 0x00ff0000) >> 16
+                #elif (ii == 3):
+                #    bit8 = (bit32 & 0xff000000) >> 24
+                bit4_i = bit8 & 0x0f
+                ai = toSigned(bit4_i, 4)
+                bit4_q = (bit8 & 0xf0) >> 4
+                aq = toSigned(bit4_q, 4)
+                spec[k*2+ii] = ai + 1.j*aq
 
     elif (bitwidth==16):
-        arr = struct.unpack('>%dh'%(bpp//2), buf[hdlen:])
+        arr = struct.unpack('>%dI'%(bpp//4), buf[hdlen:])
         nsamp = bpp//4
         spec = np.zeros(nsamp, dtype=np.complex64)
-        for k in range(bpp//4):
-            #bit32 = int(arr[k])   # convert half-integer to integer (32 bits)
-            #bit16_i =  bit32 & 0x0000ffff
-            #bit16_q = (bit32 & 0xffff0000) >> 16
-            #ai = toSigned(bit16_i, 16)
-            #aq = toSigned(bit16_q, 16)
-            aq = arr[2*k]
-            ai = arr[2*k+1]
+        for k in range(int(bpp/4)):
+            bit32 = int(arr[k])   # convert half-integer to integer (32 bits)
+            bit16_i =  bit32 & 0x0000ffff
+            bit16_q = (bit32 & 0xffff0000) >> 16
+            ai = toSigned(bit16_i, 16)
+            aq = toSigned(bit16_q, 16)
             spec[k] = ai + 1.j*aq
-
     return clk, pko, spec
 
 
-def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1):
+def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4):
     '''
     load npack blocks of binary data from the open filehandle
     starting from pack0. each block is of pack_len bytes.
@@ -106,7 +98,7 @@ def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1)
     order = np.ma.array(np.zeros(npack, dtype=int), mask=False)
     for i in range(npack):
         buf = fh.read(pack_len)
-        tmp = packetUnpack(buf, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver)
+        tmp = packetUnpack(buf, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth)
         if (tmp is None):
             data0.mask[i] = True
             clock.mask[i] = True
@@ -230,7 +222,7 @@ def formSpec(data0, clock, order, ppf, nAnt=16, grp=2, nChan=1024, bitmap=None, 
     return data_tick, antSpec
 
 
-def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=1):
+def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4):
     '''
     a wrapper of loadBatch + formSpec
     input:
@@ -277,7 +269,7 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
         grp = 1
         ppf = 8
 
-    data0, clock, order = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver)
+    data0, clock, order = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth)
     tmp = formSpec(data0, clock, order, ppf, nAnt=nAnt, grp=grp, bitmap=bitmap, verbose=verbose)
 
     if (tmp is not None):
@@ -337,14 +329,6 @@ def convertBitmap(buf):
 
     return bitmap
 
-
-def makeBitmap(bitmap):
-    arr = np.packbits(bitmap,bitorder='big')   # boolean or integers are ok
-    nbyte = len(arr)
-    buf = struct.pack('>%dB'%nbyte, *arr)
-    return buf
-
-
 def loadFullbitmap(fh, nBlock, bpp=8192, hdlen=64, blocklen=1000000, version=1):
     '''
     version: 1
@@ -377,121 +361,5 @@ def loadFullbitmap(fh, nBlock, bpp=8192, hdlen=64, blocklen=1000000, version=1):
     Fullbitmap = convertBitmap(buf)
 
     return Fullbitmap
-
-
-def writeSpec(fh, spec, p0=0, bitwidth=4, bitmap=None, verbose=0):
-    '''
-    given a spec, write the binary baseband data
-
-    input:
-        fh: a file handle, eg. fh = open(fname, 'wb')
-        spec: complex, shape=(nFrame, nAnt, nChan)
-
-    optional:
-        p0: integer, add an offset to the starting packet counter
-
-    return:
-        0: on success; 1: on error
-    '''
-
-    nFrame, nAnt, nChan = spec.shape
-    if (nAnt != 16):
-        print('can only accept nAnt=16')
-        return 1
-    if (nChan != 1024):
-        print('can only accept nChan=1024')
-        return 1
-
-    bpp = 8192  # bytes per packet
-    if (bitwidth==4):
-        ppf = 2 # packet per frame
-
-    else:
-        print('bitwidth=%d not implemented yet.'%bitwidth)
-        return 1
-
-    spec2 = spec.reshape((nFrame, nAnt, ppf, nChan//ppf))
-
-    ipack = -1
-    for i in range(nFrame):
-        for pp in range(ppf):
-            ipack += 1
-
-            hd = headerPack(p0+ipack, pp)
-            fh.write(hd)
-            buf = dataPack(spec2[i,:,pp], bitwidth=bitwidth)
-            fh.write(buf)
-
-    return 0
-
-
-def headerPack(clk, order):
-    buf1 = struct.pack('<I', clk)  # 4-bytes only
-    buf2 = b'\x00\xcc\xbb\xaa'
-    buf3 = struct.pack('<H', order)
-    hd = buf1 + buf2 + buf3 + buf3 + bytes(44) + b'BURSTTTT'
-
-    return hd
-
-
-def dataPack(data, bitwidth=4):
-    '''
-    pack contents of a single packet into binary format
-    i.e. 512 channels for 4-bit
-    128 channels for 16-bit
-    input data type should be complex with the correct value range
-    data.shape = (nAnt, nCh)
-    '''
-
-    nAnt, nCh0 = data.shape
-    if (nAnt != 16):
-        print('nAnt should be 16.')
-        return None
-
-    if (bitwidth == 4):
-        nCh = 512
-        grp = 2
-        bpc = 1 # byte per ch
-        arr = np.zeros(nAnt*nCh, dtype=np.uint8)    # unsigned Char (1-byte integer) array
-    elif (bitwidth == 16):
-        nCh = 128
-        grp = 1
-        bpc = 4 # byte per ch
-        arr = np.zeros(nAnt*nCh, dtype=np.uint32)    # unsigned integer array
-    else:
-        print('bitwidth=%d is not implemented yet.'%bitwidth)
-        return None
-
-    if (nCh0 != nCh):
-        print('inconsistent bitwidth?')
-        return None
-
-    nCk = nCh//grp  # number of chunks
-    data2 = data.reshape((nAnt,nCk,grp))
-    if (isinstance(data2, np.ma.MaskedArray)):
-        data2 = data2.data
-
-    i = -1
-    for c in range(nCk):
-        for j in range(nAnt):
-            for k in range(grp):
-                i += 1
-                if (bitwidth == 4):
-                    ai = int(data2[j,c,k].real) & 0x0f # convert to 4-bit unsigned integer
-                    aq = int(data2[j,c,k].imag) & 0x0f
-                    # each uint8 consists of 4-bit Q and 4-bit I
-                    arr[i] = ai + (aq<<4)
-                elif (bitwidth == 16):
-                    ai = int(data2[j,c,k].real) & 0xffff # convert to 16-bit unsigned integer
-                    aq = int(data2[j,c,k].imag) & 0xffff
-                    # each uint32 consists of 16-bit Q and 16-bit I
-                    arr[i] = ai& + (aq<<16)
-
-    if (bitwidth == 4):
-        buf = struct.pack('>%dB'%(nCh*nAnt), *arr)
-    elif (bitwidth == 16):
-        buf = struct.pack('>%dI'%(nCh*nAnt), *arr)
-
-    return buf
 
 

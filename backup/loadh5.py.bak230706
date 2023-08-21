@@ -142,9 +142,7 @@ def getData(fname, dname):
     try:
         f = h5py.File(fname, 'r')
     except:
-        #sys.exit('error opening file: %s' % fname)
-        print('error opening file: %s' % fname)
-        return None
+        sys.exit('error opening file: %s' % fname)
 
     if (f.get(dname)):
         d = f[dname][()]

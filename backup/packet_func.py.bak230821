@@ -23,9 +23,8 @@ def headerUnpack(header, order_off=0, verbose=0, hdver=1):
         clk = header[0] + (header[1]<<8) + (header[2]<<16) + (header[3]<<24) + (header[4]<<32)
         pko = header[8] + order_off
     elif (hdver == 2):
-        chk = header[58:64]
-        #if (chk != b'BURSTTTT'):
-        if (chk != b'RSTTTT'):
+        chk = header[56:64]
+        if (chk != b'BURSTTTT'):
             if (verbose > 0):
                 print('packet read error. abort!')
             return None
