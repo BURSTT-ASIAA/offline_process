@@ -60,7 +60,7 @@ def Cov2SVD(Cov):
     return U, S, Vh
 
 
-def makeCov(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False):
+def makeCov(ftdata, scale=False, coeff=True, ant_flag=[]):
     '''
     generate covariance matrix from the waterfall spectra
     input:
@@ -71,7 +71,6 @@ def makeCov(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False):
         coeff: whether to comput covariance on correlation coefficients
         (note: choose none or one of the above, not both.)
         ant_flag: a list of antennas that should be flagged
-        bandpass: whether to normalize the bandpass
 
     output:
         Cov, shape: (nAnt, nAnt, nchan)
@@ -86,20 +85,11 @@ def makeCov(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False):
     mi = np.ma.median(ftdata.imag, axis=1, keepdims=True)
     tmp = ftdata - (mr + 1j*mi)
     norm2 = np.ma.abs(tmp)
+    #norm = tmp.var(axis=1)
     norm = norm2.mean(axis=1)
     avg_norm = norm.mean(axis=0, keepdims=True)
-
-
-    if (coeff):
-        bandpass = True
-        # when using coeff, the output norm is approximated by the bandpass version
-
-    if (bandpass):
-        scale = True
-        # norm contains bandpass and antenna relative gain
-    else:
-        norm /= avg_norm
-        # norm contains only antenna relative gain
+    norm /= avg_norm
+    #norm = np.ma.sqrt(norm)
     
     if (scale):
         tmp /= norm.reshape((nAnt, 1, nchan))
@@ -107,10 +97,10 @@ def makeCov(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False):
     Cov = np.zeros((nAnt, nAnt, nchan), dtype=complex)
     for ai in range(nAnt):
         for aj in range(nAnt):
+            y = tmp[ai]*tmp[aj].conjugate()
             if (coeff):
-                y = ftdata[ai] * ftdata[aj].conjugate() / np.ma.abs(ftdata[ai]) / np.ma.abs(ftdata[aj])
-            else:
-                y = tmp[ai]*tmp[aj].conjugate()
+                y /= (norm2[ai]*norm2[aj])
+            #Cov[ai,aj] = y.var(axis=0)
             Cov[ai,aj] = y.mean(axis=0)
 
     for ai in ant_flag:

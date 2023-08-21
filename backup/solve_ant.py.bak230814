@@ -267,8 +267,6 @@ if (do_Tsys2D):
     M_freq2 = M.min(axis=2)
     print(M.shape)
 
-    Mout = M.transpose((2,0,1))
-    adoneh5(fvis, Mout, 'antTsys2D')            # log10(Tsys2D), shape: (nWin, nAnt, nChan)
 
     #fig, sub = plt.subplots(4,4,figsize=(16,12),sharex=True,sharey=True)
     fig = plt.figure(figsize=(16,12))
