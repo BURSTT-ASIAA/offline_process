@@ -153,10 +153,10 @@ def obsSite(site='taroge4'):
             obs.long        = '121.5817'
             obs.lat         = '+24.7564'
             obs.elevation   = 650.0
-        elif (site == 'longtien'): # DGPS measurement at 230721
-            obs.long        = '120.82450942'    #'120.8244'
-            obs.lat         = '+23.71464178' #'+23.7147'
-            obs.elevation   = 879.814       #850.0
+        elif (site == 'longtien'):
+            obs.long        = '120.8244'
+            obs.lat         = '+23.7147'
+            obs.elevation   = 850.0
         elif (site == 'lyudao'):
             obs.long        = '121.5007'
             obs.lat         = '+22.6750'

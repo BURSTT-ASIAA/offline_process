@@ -47,11 +47,6 @@ Hhwhm   = 60.       # H-plane half-power half width in deg
 dellim  = 150.
 delsep  = 0.5
 body    = 'sun'
-revtau  = False
-revpos  = False
-swapEH  = False
-zlim    = [0., 300.]
-tlim    = None
 
 def atten(x, hwhm):
     '''
@@ -92,13 +87,6 @@ options are:
                     # change the E-plan and H-plane beam width in half-width at half maximum (in deg)
                     # default: %d %d
 
-    --swapEH        # swap E and H plane attenuation (so dipoles point EW)
-                    # (default: dipoles point NS)
-    --zlim min max  # set the min/max of Tsys2D map in K
-                    # the SEFD is 1/60 zlim in MJy
-    --tlim min max  # set the min/max in time range to summarize Tsys2D and SEFD2D
-                    # in seconds
-
     ## to select only a subset of antennas for processing
     --ai AI         # specify the antenna numbers (only needed if --aconf is used)
     --aj AJ         # (AI, AJ are default to 0, 1)
@@ -112,8 +100,6 @@ options are:
     --no-clkcorr    # disable using ClkCorr Spec and Coeff for analysis
 
     --force-tausrc  # force redo of source delay fitting
-    --rev-tau       # reverse deflay direction, debugging
-    --rev-pos       # reverse the antenna config file (for idt-beamformed data)
 
     --plot          # plot the Clock Offset phase correction
 
@@ -158,15 +144,6 @@ while (inp):
     elif (k == '--hwhm'):
         Ehwhm = float(inp.pop(0))
         Hhwhm = float(inp.pop(0))
-    elif (k == '--swapEH'):
-        swapEH = True
-    elif (k == '--zlim'):
-        zlim[0] = float(inp.pop(0))
-        zlim[1] = float(inp.pop(0))
-    elif (k == '--tlim'):
-        tmin = float(inp.pop(0))
-        tmax = float(inp.pop(0))
-        tlim = [tmin, tmax]
     elif (k == '--fit'):
         do_fitClkOff = True
     elif (k == '--clk'):
@@ -177,10 +154,6 @@ while (inp):
         noClkCorr = True
     elif (k == '--force-tausrc'):
         do_tausrc = True
-    elif (k == '--rev-tau'):
-        revtau = True
-    elif (k == '--rev-pos'):
-        revpos = True
     elif (k == '--plot'):
         do_check = True
     elif (k == '--init'):
@@ -216,10 +189,6 @@ else:
     tmp2 = tmp.split('_')
     site = tmp2[0].lower()
     antXYZ = np.loadtxt(aconf, usecols=(1,2,3), ndmin=2)
-if (do_model and revpos):
-    print('reversing the ant pos...')
-    antXYZ = np.flip(antXYZ, axis=0)
-
 
 G0 = 10.**(gant/10.)
 
@@ -261,30 +230,20 @@ for fvis in files:
 
     nft  = getData(fvis, 'winNFT')  # shape: nWin, nInp, nChan
     spec1 = getData(fvis, 'winSpec') # shape: nWin, nBl, nChan
-    if (not isinstance(spec1, np.ma.MaskedArray)):
-        spec1 = np.ma.array(spec1, mask=False)
     sec  = getData(fvis, 'winSec')  # shape: nWin
-    #var  = getData(fvis, 'winVar')  # shape: nWin, nBl, nChan
+    var  = getData(fvis, 'winVar')  # shape: nWin, nBl, nChan
     coeff1 = getData(fvis, 'winCoeff') # shape: nWin, nBl, nChan
-    if (not isinstance(coeff1, np.ma.MaskedArray)):
-        coeff1 = np.ma.array(coeff1, mask=False)
     nWin = len(sec)
 
     # window time
     tmp = atopen + sec/86400        # convert to days
     tWin = tmp.to_datetime()
 
-    if (tlim is None):
-        tlim = [sec[0], sec[-1]]
-    tsel = (sec>=tlim[0]) * (sec<=tlim[1])
-    tt1 = tWin[np.argmin(np.abs(sec-tlim[0]))]
-    tt2 = tWin[np.argmin(np.abs(sec-tlim[1]))]
-
 
     if (len(spec1.shape) == 2): # backward-compatible with single_dev_vis2.py
         spec1  = spec1.reshape((nWin, 1, nChan))
         coeff1 = coeff1.reshape((nWin, 1, nChan))
-        #var    = var.reshape((nWin, 1, nChan))
+        var    = var.reshape((nWin, 1, nChan))
 
     nInp = nft.shape[1]
     print('nInp =', nInp)
@@ -659,10 +618,10 @@ for fvis in files:
     #amp = np.ma.abs(spec3).mean(axis=2)
     #perr = np.arctan2(std, amp) # phase scatter in rad
     ## calulate phase error, new
-    #std = np.ma.sqrt(var/2) # approx scatter perpendicular to the ampld
+    std = np.ma.sqrt(var/2) # approx scatter perpendicular to the ampld
     amp = np.ma.abs(spec3)
-    #perr = np.arctan2(std, amp).mean(axis=2)
-    #perr /= np.sqrt(np.count_nonzero(~amp.mask, axis=2))
+    perr = np.arctan2(std, amp).mean(axis=2)
+    perr /= np.sqrt(np.count_nonzero(~amp.mask, axis=2))
 
     b = -1
     for ai in range(nInp-1):
@@ -670,13 +629,13 @@ for fvis in files:
             b += 1
             ax = sub[ai,aj-1]
             #faphase = np.ma.median(np.ma.angle(spec3), axis=1)
-            ax.plot(tWin, np.ma.angle(fa_spec3[:,b]), marker='.', color='C0')
-            #ax.errorbar(tWin, np.ma.angle(fa_spec3[:,b]), perr[:,b], marker='.', linestyle=':', color='C0')
+            #ax.plot(tWin, np.ma.angle(fa_spec3[:,b]), marker='.', color='C0')
+            ax.errorbar(tWin, np.ma.angle(fa_spec3[:,b]), perr[:,b], marker='.', linestyle=':', color='C0')
             ax.set_xlabel('time')
             ax.set_ylabel('phase (rad)')
-            #mean_err = perr[:,b].mean()
-            #rms_err = np.ma.angle(fa_spec3[:,b]).std()
-            #print('%d%d:'%(ai,aj), 'RMS:%.3frad'%rms_err, '<err>:%.3frad'%mean_err)
+            mean_err = perr[:,b].mean()
+            rms_err = np.ma.angle(fa_spec3[:,b]).std()
+            print('%d%d:'%(ai,aj), 'RMS:%.3frad'%rms_err, '<err>:%.3frad'%mean_err)
     fig.autofmt_xdate(rotation=45)
     if (nInp >= 3):
         # add an axes for closure phase, if nInp>=3 and only for the first 3 inputs
@@ -705,16 +664,16 @@ for fvis in files:
 
 
     ## SEFD plot
-    if (False):
-        if (srcflux > 0):
-            medAmp = np.ma.median(np.ma.abs(spec2)) # median level
-            calFac = medAmp / srcflux
-            sefd = np.ma.sqrt(var) / calFac * scale # SEFD in Jy
-            sefd.fill_value = 0.
-            par = np.percentile(sefd.filled(), [0, 15, 85, 100], axis=0)
-        else:
-            par = np.zeros((4, nChan))
+    if (srcflux > 0):
+        medAmp = np.ma.median(np.ma.abs(spec2)) # median level
+        calFac = medAmp / srcflux
+        sefd = np.ma.sqrt(var) / calFac * scale # SEFD in Jy
+        sefd.fill_value = 0.
+        par = np.percentile(sefd.filled(), [0, 15, 85, 100], axis=0)
+    else:
+        par = np.zeros((4, nChan))
 
+    if (False):
         f3, s3 = plt.subplots(1,1)
         png3 = '%s.SEFD.png' % fvis
         suptitle = 'file: %s, %.0fMHz, nWin=%d' % (fvis, fcen/1e6, nWin)
@@ -753,7 +712,6 @@ for fvis in files:
         adoneh5(fvis, az, 'az')
         adoneh5(fvis, el, 'el')
 
-        ## method 1
         ## convert the az,el to HA,DEC but assuming latitude=0
         ## if the dipole is in N-S direction, then
         ## DEC is the E-plane angle
@@ -761,26 +719,8 @@ for fvis in files:
         phi1 = 0
         DEC = np.arcsin(np.sin(el)*np.sin(phi1)+np.cos(el)*np.cos(phi1)*np.cos(az))
         HA  = np.arcsin((-1)*np.sin(az)*np.cos(el)/np.cos(DEC))
-
-        ## method 2
-        za = np.pi/2 - el
-        pntr = np.sin(za)
-        pntz = np.cos(za)
-        pntx = pntr * np.sin(az)
-        pnty = pntr * np.cos(az)
-        EWoff = np.arctan2(pntx,pntz)
-        NSoff = np.arctan2(pnty,pntz)
-        # overrides method 1 now
-        HA = -EWoff
-        DEC = NSoff
-
-        ## apply calculate attenuation
-        if (swapEH):
-            Hatt = atten(DEC/np.pi*180., Ehwhm)
-            Eatt = atten(HA/np.pi*180., Hhwhm)
-        else:
-            Eatt = atten(DEC/np.pi*180., Ehwhm)
-            Hatt = atten(HA/np.pi*180., Hhwhm)
+        Eatt = atten(DEC/np.pi*180., Ehwhm)
+        Hatt = atten(HA/np.pi*180., Hhwhm)
         att0 = Eatt*Hatt
         print('max atten:', att0.max())
 
@@ -855,8 +795,6 @@ for fvis in files:
                     Bproj.append(np.dot(BVec, unitVec[i]))
             savBproj.append(Bproj)
         savBproj = np.array(savBproj)
-        if (revtau):
-            savBproj *= -1
 
 
     ## plotting for each baseline
@@ -1109,44 +1047,6 @@ for fvis in files:
             plt.close(f2)
 
 
-            ## Coeff plot
-            if (pp == 0):
-                png = '%s/bl%s.coeff2d.png' % (odir, corr)
-                suptitle = 'file: %s, bl:%s' % (fvis, corr)
-            elif (pp == 1):
-                png = '%s/bl%s.coeff2d.sub.png' % (odir, corr)
-                suptitle = 'file: %s, bl:%s, sub-t_mean' % (fvis, corr)
-
-            fig, sub = plt.subplots(2,2,figsize=(10,8),sharex=True,sharey=True)
-            # real
-            ax = sub[0,0]
-            ax.pcolormesh(T,Y,coeff.real.T)
-            ax.set_title('real')
-            ax.set_ylabel('freq (MHz)')
-            # real
-            ax = sub[0,1]
-            ax.pcolormesh(T,Y,coeff.imag.T)
-            ax.set_title('imag')
-            # ampld
-            ax = sub[1,0]
-            ax.pcolormesh(T,Y,np.ma.abs(coeff).T)
-            ax.set_title('abs')
-            ax.set_ylabel('freq (MHz)')
-            ax.set_xlabel('time')
-            # phase
-            ax = sub[1,1]
-            ax.pcolormesh(T,Y,np.ma.angle(coeff).T)
-            ax.set_title('phase')
-            ax.set_xlabel('time')
-
-            fig.tight_layout(rect=[0,0.03,1,0.95])
-            fig.subplots_adjust(wspace=0)
-            fig.suptitle(suptitle)
-            fig.savefig(png)
-            plt.close(fig)
-
-
-
         ## 2D Tsys, SEFD plot
         if (do_model):
             Tsys2D = srcflux2.reshape((1,-1)) / np.ma.abs(coeff) * fscale2.reshape((1,-1))
@@ -1157,9 +1057,9 @@ for fvis in files:
             savTsys2D.append(Tsys2D)
             savTsys2Dmask.append(Tsys2D.mask)
             Tsys_time = np.ma.median(Tsys2D, axis=1)
-            Tsys_freq = np.ma.median(Tsys2D[tsel], axis=0)
+            Tsys_freq = np.ma.median(Tsys2D, axis=0)
             Tsys_time2 = Tsys2D.min(axis=1)
-            Tsys_freq2 = Tsys2D[tsel].min(axis=0)
+            Tsys_freq2 = Tsys2D.min(axis=0)
             #vmin = Tsys2D.min()
             #vmax = Tsys2D.max()
 
@@ -1170,17 +1070,17 @@ for fvis in files:
             savSEFD2D.append(SEFD2D)
             savSEFD2Dmask.append(SEFD2D.mask)
             SEFD2D_time = np.ma.median(SEFD2D, axis=1)
-            SEFD2D_freq = np.ma.median(SEFD2D[tsel], axis=0)
+            SEFD2D_freq = np.ma.median(SEFD2D, axis=0)
             SEFD2D_time2 = SEFD2D.min(axis=1)
-            SEFD2D_freq2 = SEFD2D[tsel].min(axis=0)
+            SEFD2D_freq2 = SEFD2D.min(axis=0)
 
 
             for tp in range(2):
                 if (tp==0):
                     Y2D = Tsys2D
                     png4 = '%s/bl%s.rf%d_%d.Tsys2D.png' % (odir, corr, rfmin, rfmax)
-                    vmin = zlim[0]
-                    vmax = zlim[1]
+                    vmin = 0
+                    vmax = 300
                     cblabel = 'Tsys (K)'
                     yname = 'Tsys'
                     y_freq  = Tsys_freq     # med
@@ -1190,8 +1090,8 @@ for fvis in files:
                 elif (tp==1):
                     Y2D = SEFD2D/1e6    # convert to MJy
                     png4 = '%s/bl%s.rf%d_%d.SEFD2D.png' % (odir, corr, rfmin, rfmax)
-                    vmin = zlim[0]/60
-                    vmax = zlim[1]/60       # 10MJy, roughly 300K
+                    vmin = 0
+                    vmax = 10           # 10MJy, roughly 300K
                     cblabel = 'SEFD*(L/L0)^2 (MJy)'
                     yname = 'SEFD'
                     y_freq  = SEFD2D_freq/1e6     # med
@@ -1210,12 +1110,9 @@ for fvis in files:
                 ax2D.set_ylabel('freq (MHz)')
                 #cb = plt.colorbar(s, ax=ax2D)
                 #cb.set_label('Tsys (K)')
-                ax2D.axvline(tt1, linestyle='--', color='r')
-                ax2D.axvline(tt2, linestyle='--', color='r')
 
-                axtp.plot(tWin, y_time, label='med')
-                axtp.plot(tWin, y_time2, linestyle=':', label='min')
-                axtp.set_xlim(tWin[0], tWin[-1])
+                axtp.plot(sec, y_time, label='med')
+                axtp.plot(sec, y_time2, linestyle=':', label='min')
                 axtp.legend()
                 axtp.set_ylabel(cblabel)
                 axtp.set_ylim(vmin, vmax)
@@ -1226,7 +1123,6 @@ for fvis in files:
                     axrt.plot(y_freq, freq, label='med')
                 if (np.count_nonzero(y_freq2.mask) < nChan):
                     axrt.plot(y_freq2, freq, linestyle=':', label='min')
-                axrt.set_ylim(freq[0], freq[-1])
                 axrt.legend()
                 axrt.set_xlabel(cblabel)
                 axrt.set_xlim(vmin, vmax)
@@ -1235,12 +1131,10 @@ for fvis in files:
                 axrt.axvline(np.ma.median(y_freq), color='k', linestyle=':')
 
                 if (tp==0):
-                    fig.text(0.76, 0.80, 'med(%s_freq.med) = %.0f K'%(yname, np.ma.median(y_freq)), color='C0')
-                    fig.text(0.76, 0.75, 'med(%s_freq.min) = %.0f K'%(yname, np.ma.median(y_freq2)), color='C1')
+                    fig.text(0.76, 0.80, 'med(%s_freq.med) = %.0f K'%(yname, np.ma.median(y_freq)))
                 elif (tp==1):
-                    fig.text(0.76, 0.80, 'med(%s_freq.med) = %.3f MJy'%(yname, np.ma.median(y_freq)), color='C0')
-                    fig.text(0.76, 0.75, 'med(%s_freq.min) = %.3f MJy'%(yname, np.ma.median(y_freq2)), color='C1')
-                    fig.text(0.76, 0.85, 'SEFD*(400/fMHz)^2')
+                    fig.text(0.76, 0.80, 'med(%s_freq.med) = %.3f MJy'%(yname, np.ma.median(y_freq)))
+                    fig.text(0.76, 0.85, 'SEFD*(lam/lam0)^2')
                 fig.suptitle(suptitle)
                 fig.savefig(png4)
                 plt.close(fig)

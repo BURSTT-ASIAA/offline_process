@@ -33,16 +33,12 @@ bitwidth    = 4
 ppf         = 2
 hdver       = 1
 order_off   = 0
-do_pcal     = False
-feigs       = []
-meta        = 0
-
 
 pack0 = 0               # packet offset
 nPack = 1000            # num of packets to read
 fout  = 'analyze.vish5'
 dodiag = True
-no_bitmap = False
+specDur = 1.e-6/(flim[1]-flim[0])*nChan    # duration of one spectrum in seconds
 
 
 usage = '''
@@ -51,46 +47,46 @@ calculate cross-correlation of a single FPGA board
 syntax:
     %s [options]
 
+
     options are:
-    --pcal          # whether to perform phase correction
     -g <input> 'idx...' 
                     # <input_dir> should contain binary packets files to be analyzed
                     # each dir is expected to contain data from one FPGA board
                     # 'idx...' is a list of array indices to correlate
-                    # or all for all sixteen antennas
-                    #
+                    
                     # note: <input> can be a file (.bin), which will be processed
                     # however, if <input> is a folder, all .bin files within will be processed
-                    #
-                    # Note: if --pcal is set, a 3rd parameter is required after -g
-                    # i.e. -g <input> 'idx...' <eigen.h5>
-                    # with <eigen.h5> used to provide calibration info for this <input>
 
     -n nPack        # specify the number of packets to read and average per file
                     # defautl: %d
+
     --16bit         # specify that data is in 16bit format
                     # (default is in 4bit format)
+    
     --hd VER        # header version
                     # (%d)
-    --meta bytes    # the ring buffer or file metadata length in bytes
+
     --p0 pack0      # specify the pack offset
                     # disable autop0
+
     --blocklen blocklen
                     # specify the block length in packets
                     # (%d)
+
     --nB nBlock     # specify the length of the binary file in nBlock
                     # without this parameter, the bitmap can not be loaded
                     # default is to determine the nBlock automatically
+
     --no-aB         # disable auto-Block
+
     --ooff OFF      # set packet_order offset so that it starts from 0
-    --flim fmin fmax# set the spectrum min/max freq in MHz
-                    # (%.1f  %.1f)
-    --no-bitmap     # ignore bitmap
+
     -o output_file  # specify the output file name
                     # default: %s
+
     -v              # enable more message
 
-''' % (pg, nPack, hdver, packBlock, flim[0], flim[1], fout)
+''' % (pg, nPack, hdver, packBlock, fout)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -100,11 +96,8 @@ while (inp):
     k = inp.pop(0)
     if (k == '-n'):
         nPack = int(inp.pop(0))
-    elif (k == '--pcal'):
-        do_pcal = True
     elif (k == '-g'):
         gdir = inp.pop(0)
-        gdir = gdir.rstrip('/')
         tmp = inp.pop(0)
         if (tmp == 'all'):
             gidx = np.arange(nAnt)
@@ -112,22 +105,11 @@ while (inp):
             gidx = [int(x) for x in tmp.split()]
         dirs.append(gdir)
         grpIdx[gdir] = gidx
-        # check do_pcal
-        if (len(inp)>=1):
-            if (inp[0].startswith('-')):
-                do_pcal = False
-        else:
-            do_pcal = False
-        if (do_pcal):
-            feig = inp.pop(0)
-            feigs.append(feig)
     elif (k == '--16bit'):
         bitwidth = 16
         ppf = 8
     elif (k == '--hd'):
         hdver = int(inp.pop(0))
-    elif (k == '--meta'):
-        meta = int(inp.pop(0))
     elif (k == '--p0'):
         pack0 = int(inp.pop(0))
         autop0 = False
@@ -139,11 +121,6 @@ while (inp):
         autoblock = False
     elif (k == '--ooff'):
         order_off = int(inp.pop(0))
-    elif (k == '--flim'):
-        flim[0] = float(inp.pop(0))
-        flim[1] = float(inp.pop(0))
-    elif (k=='--no-bitmap'):
-        no_bitmap = True
     elif (k == '-o'):
         fout = inp.pop(0)
     elif (k == '-v'):
@@ -153,7 +130,6 @@ while (inp):
     else:
         print('unused arg:', k)
 
-specDur = 1.e-6/(flim[1]-flim[0])*nChan    # duration of one spectrum in seconds
 freq = np.linspace(flim[0], flim[1], nChan, endpoint=False)
 
 if (fout.endswith('.vish5')):
@@ -208,9 +184,6 @@ winCoeff2 = []
 winCoeff2mask = []
 
 grpFiles = []
-#refV2 = []
-refV2 = np.ma.array(np.zeros((nChan, nInp)), mask=False)
-ii = -1
 for gi in range(nGrp):
     idir = dirs[gi]
     if (os.path.isdir(idir)):
@@ -219,28 +192,8 @@ for gi in range(nGrp):
     elif (os.path.isfile(idir)):
         files = [idir]
     grpFiles.append(files)
-
-    if (do_pcal):
-        feig = feigs[gi]
-        print('read cal:', feig)
-        # eigenvectors from the scaled mode
-        V2  = getData(feig, 'V2_scale') # shape: (nChan, nAnt, nMode)
-        # bandpass normalization for the scaled mode
-        N2  = getData(feig, 'N2_scale') # shape: (nAnt, nChan)
-        N2.mask[N2==0] = True
-        # take the leading eigenmode corresponding to the calibrator (at transit time)
-        tmpV2  = V2[:,:,-1]         # averaged window, last mode
-        tmpV2 /= np.abs(tmpV2)      # keep only the phase info
-
-        gIdx = grpIdx[idir]
-        for x in gIdx:
-            ii += 1
-            refV2[:,ii] = tmpV2[:,x]
-
 nFile = len(grpFiles[0])
 #nFile = 2   # override when debugging
-
-
 
 
 t0 = time.time()
@@ -251,10 +204,7 @@ for fi in range(nFile):
 
     tmp = fbase.split('.')
     ftpart = tmp[1]
-    if (len(ftpart)==10):
-        ftstr = '23'+ftpart # hard-coded to 2023!!
-    elif (len(ftpart)==14):
-        ftstr = ftpart[2:]
+    ftstr = '23'+ftpart # hard-coded to 2023!!
     ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
     if (ftime0 is None):
         ftime0 = ftime
@@ -296,7 +246,7 @@ for fi in range(nFile):
                 fin = files[gi]
 
                 fh = open(fin, 'rb')
-                fullBM = loadFullbitmap(fh, nBlock, blocklen=packBlock, meta=meta)
+                fullBM = loadFullbitmap(fh, nBlock, blocklen=packBlock)
                 fh.close()
 
                 ap = True
@@ -314,7 +264,7 @@ for fi in range(nFile):
                         grp_p0[gi] = p0
 
             print(grp_p0)
-            if (np.any(np.array(grp_p0)==-1)):
+            if (np.any(grp_p0==-1)):
                 print('... autop0 failed. fallback to default pack0')
                 p0 = pack0
                 break
@@ -344,10 +294,8 @@ for fi in range(nFile):
         fh = open(fin, 'rb')
 
         t1 = time.time()
-        BM = loadFullbitmap(fh, nBlock, blocklen=packBlock, meta=meta)
+        BM = loadFullbitmap(fh, nBlock, blocklen=packBlock)
         bitmap = BM[p0:p0+nPack]
-        if (no_bitmap):
-            bitmap = np.ones(nPack, dtype=bool)
         fvalid = float(np.count_nonzero(bitmap)/nPack)
         if (fvalid < 0.1):  # arbitrary threshold
             print('no valid block. skip.')
@@ -358,7 +306,7 @@ for fi in range(nFile):
         print('elapsed time: %.3fsec'%(t1-t0))
         #tick, tmpspec = loadSpec(fh, p0, nPack, nBlock=nBlock, verbose=verbose)
         #tick, tmpspec = loadSpec(fh, p0, nPack, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
-        tick, tmpspec = loadSpec(fh, p0, nPack, order_off=order_off, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver, meta=meta)
+        tick, tmpspec = loadSpec(fh, p0, nPack, order_off=order_off, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver)
         t2 = time.time()
         print('   %d packets loaded in %.2fsec'%(nPack, t2-t1))
         fh.close()
@@ -379,12 +327,6 @@ for fi in range(nFile):
         gc.collect()
         continue    # skip the current window
     
-
-    ## phase cal
-    if (do_pcal):
-        antspec /= refV2.T.reshape((1,nInp,nChan))
-
-
     #ampld = np.ma.abs(antspec).mean(axis=0)  # shape (nInp, nChan)
     ampld = np.ma.array(np.zeros((nInp, nChan)), mask=False)
     for ai in range(nInp):

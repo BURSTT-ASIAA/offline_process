@@ -48,7 +48,6 @@ dellim  = 150.
 delsep  = 0.5
 body    = 'sun'
 revtau  = False
-revpos  = False
 swapEH  = False
 zlim    = [0., 300.]
 tlim    = None
@@ -95,7 +94,7 @@ options are:
     --swapEH        # swap E and H plane attenuation (so dipoles point EW)
                     # (default: dipoles point NS)
     --zlim min max  # set the min/max of Tsys2D map in K
-                    # the SEFD is 1/60 zlim in MJy
+                    # the SEFD is 1/50 zlim in MJy
     --tlim min max  # set the min/max in time range to summarize Tsys2D and SEFD2D
                     # in seconds
 
@@ -113,7 +112,6 @@ options are:
 
     --force-tausrc  # force redo of source delay fitting
     --rev-tau       # reverse deflay direction, debugging
-    --rev-pos       # reverse the antenna config file (for idt-beamformed data)
 
     --plot          # plot the Clock Offset phase correction
 
@@ -179,8 +177,6 @@ while (inp):
         do_tausrc = True
     elif (k == '--rev-tau'):
         revtau = True
-    elif (k == '--rev-pos'):
-        revpos = True
     elif (k == '--plot'):
         do_check = True
     elif (k == '--init'):
@@ -216,10 +212,6 @@ else:
     tmp2 = tmp.split('_')
     site = tmp2[0].lower()
     antXYZ = np.loadtxt(aconf, usecols=(1,2,3), ndmin=2)
-if (do_model and revpos):
-    print('reversing the ant pos...')
-    antXYZ = np.flip(antXYZ, axis=0)
-
 
 G0 = 10.**(gant/10.)
 
@@ -753,7 +745,6 @@ for fvis in files:
         adoneh5(fvis, az, 'az')
         adoneh5(fvis, el, 'el')
 
-        ## method 1
         ## convert the az,el to HA,DEC but assuming latitude=0
         ## if the dipole is in N-S direction, then
         ## DEC is the E-plane angle
@@ -761,20 +752,6 @@ for fvis in files:
         phi1 = 0
         DEC = np.arcsin(np.sin(el)*np.sin(phi1)+np.cos(el)*np.cos(phi1)*np.cos(az))
         HA  = np.arcsin((-1)*np.sin(az)*np.cos(el)/np.cos(DEC))
-
-        ## method 2
-        za = np.pi/2 - el
-        pntr = np.sin(za)
-        pntz = np.cos(za)
-        pntx = pntr * np.sin(az)
-        pnty = pntr * np.cos(az)
-        EWoff = np.arctan2(pntx,pntz)
-        NSoff = np.arctan2(pnty,pntz)
-        # overrides method 1 now
-        HA = -EWoff
-        DEC = NSoff
-
-        ## apply calculate attenuation
         if (swapEH):
             Hatt = atten(DEC/np.pi*180., Ehwhm)
             Eatt = atten(HA/np.pi*180., Hhwhm)
@@ -1190,8 +1167,8 @@ for fvis in files:
                 elif (tp==1):
                     Y2D = SEFD2D/1e6    # convert to MJy
                     png4 = '%s/bl%s.rf%d_%d.SEFD2D.png' % (odir, corr, rfmin, rfmax)
-                    vmin = zlim[0]/60
-                    vmax = zlim[1]/60       # 10MJy, roughly 300K
+                    vmin = zlim[0]/50
+                    vmax = zlim[1]/50       # 10MJy, roughly 300K
                     cblabel = 'SEFD*(L/L0)^2 (MJy)'
                     yname = 'SEFD'
                     y_freq  = SEFD2D_freq/1e6     # med

@@ -15,7 +15,6 @@ from packet_func import *
 
 bitwidth = 4    # binary bit width
 hdver    = 1    # header version
-meta     = 0    # ring buffer or file metadata length in bytes
 
 bpp = 8192  # bytes per packet (payload size)
 #fpgaclock = 401.066667e6
@@ -35,7 +34,6 @@ pack0 = 0
 nBlock = 0
 ylim = None
 verbose = 0
-no_bitmap = False
 
 inp = sys.argv[0:]
 pg  = inp.pop(0)
@@ -55,7 +53,6 @@ options are:
                     # (default is the 4bit format)
     --hd VER        # header version. 1 or 2
                     # (%d)
-    --meta bytes    # ring buffer of file metadata length in bytes
     --p0 pack0      # the starting packet number
                     # disable autop0 (automatic switch block if p0=0 is bad)
     --blocklen blocklen
@@ -64,7 +61,6 @@ options are:
                     # override auto-block
     --no-ab         # disable auto-determine of nBlock (auto-block)
     --ooff OFF      # offset the packet_order
-    --no-bitmap     # ignore the bitmap
     --ylim YMIN YMAX    # set the plot range in y
     -v              # turn on some diagnostic info
 
@@ -87,8 +83,6 @@ while inp:
         bitwidth = 16
     elif (k == '--hd'):
         hdver = int(inp.pop(0))
-    elif (k == '--meta'):
-        meta = int(inp.pop(0))
     elif (k == '--p0'):
         pack0 = int(inp.pop(0))
         autop0 = False
@@ -101,8 +95,6 @@ while inp:
         autoblock = False
     elif (k == '--ooff'):
         order_off = int(inp.pop(0))
-    elif (k == '--no-bitmap'):
-        no_bitmap = True
     elif (k == '--ylim'):
         ymin = float(inp.pop(0))
         ymax = float(inp.pop(0))
@@ -163,13 +155,11 @@ for fii,fin in enumerate(files):
     if (nBlock == 0):
         print('bitmap info not used.')
 
-    fullBM = loadFullbitmap(fh, nBlock, blocklen=packBlock, meta=meta)
+    fullBM = loadFullbitmap(fh, nBlock, blocklen=packBlock)
     p0 = pack0
     ap = autop0
     while (ap):
         bitmap = fullBM[p0:p0+npack]
-        if (no_bitmap):
-            bitmap = np.ones(npack, dtype=bool)
         fvalid = float(np.count_nonzero(bitmap)/npack)
         if (fvalid < 0.1):  # arbitrary threshold
             p0 += packBlock
@@ -184,8 +174,6 @@ for fii,fin in enumerate(files):
         print('pack0:', p0)
 
     bitmap = fullBM[p0:p0+npack]
-    if (no_bitmap):
-        bitmap = np.ones(npack, dtype=bool)
     fvalid = float(np.count_nonzero(bitmap)/npack)
     if (fvalid < 0.1):  # arbitrary threshold
         print('no valid block. skip.')
@@ -196,7 +184,7 @@ for fii,fin in enumerate(files):
         continue
 
     #tick, spec = loadSpec(fh, p0, npack, bpp, ppf, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
-    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, order_off=order_off, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver, meta=meta)
+    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, order_off=order_off, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver)
     adata2d = np.abs(spec).mean(axis=0)
 
     fh.close()

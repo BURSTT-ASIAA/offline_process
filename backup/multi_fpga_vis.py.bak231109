@@ -35,8 +35,6 @@ hdver       = 1
 order_off   = 0
 do_pcal     = False
 feigs       = []
-meta        = 0
-
 
 pack0 = 0               # packet offset
 nPack = 1000            # num of packets to read
@@ -72,7 +70,6 @@ syntax:
                     # (default is in 4bit format)
     --hd VER        # header version
                     # (%d)
-    --meta bytes    # the ring buffer or file metadata length in bytes
     --p0 pack0      # specify the pack offset
                     # disable autop0
     --blocklen blocklen
@@ -126,8 +123,6 @@ while (inp):
         ppf = 8
     elif (k == '--hd'):
         hdver = int(inp.pop(0))
-    elif (k == '--meta'):
-        meta = int(inp.pop(0))
     elif (k == '--p0'):
         pack0 = int(inp.pop(0))
         autop0 = False
@@ -251,10 +246,7 @@ for fi in range(nFile):
 
     tmp = fbase.split('.')
     ftpart = tmp[1]
-    if (len(ftpart)==10):
-        ftstr = '23'+ftpart # hard-coded to 2023!!
-    elif (len(ftpart)==14):
-        ftstr = ftpart[2:]
+    ftstr = '23'+ftpart # hard-coded to 2023!!
     ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
     if (ftime0 is None):
         ftime0 = ftime
@@ -296,7 +288,7 @@ for fi in range(nFile):
                 fin = files[gi]
 
                 fh = open(fin, 'rb')
-                fullBM = loadFullbitmap(fh, nBlock, blocklen=packBlock, meta=meta)
+                fullBM = loadFullbitmap(fh, nBlock, blocklen=packBlock)
                 fh.close()
 
                 ap = True
@@ -344,7 +336,7 @@ for fi in range(nFile):
         fh = open(fin, 'rb')
 
         t1 = time.time()
-        BM = loadFullbitmap(fh, nBlock, blocklen=packBlock, meta=meta)
+        BM = loadFullbitmap(fh, nBlock, blocklen=packBlock)
         bitmap = BM[p0:p0+nPack]
         if (no_bitmap):
             bitmap = np.ones(nPack, dtype=bool)
@@ -358,7 +350,7 @@ for fi in range(nFile):
         print('elapsed time: %.3fsec'%(t1-t0))
         #tick, tmpspec = loadSpec(fh, p0, nPack, nBlock=nBlock, verbose=verbose)
         #tick, tmpspec = loadSpec(fh, p0, nPack, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
-        tick, tmpspec = loadSpec(fh, p0, nPack, order_off=order_off, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver, meta=meta)
+        tick, tmpspec = loadSpec(fh, p0, nPack, order_off=order_off, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver)
         t2 = time.time()
         print('   %d packets loaded in %.2fsec'%(nPack, t2-t1))
         fh.close()

@@ -1,0 +1,118 @@
+#!/usr/bin/env python
+
+from packet_func import *
+from loadh5 import *
+import sys, os.path
+import matplotlib.pyplot as plt
+from glob import glob
+from subprocess import call
+from datetime import datetime
+from astropy.time import Time
+
+
+idir    = 'data_230822'
+ofile   = 'intensity.inth5'
+
+nAnt    = 16
+nChan   = 1024
+nBeam   = nAnt
+flim    = [400., 800.]
+freq    = np.linspace(flim[0], flim[1], nChan, endpoint=False)
+
+p0      = 0
+nPack   = 10000
+nBlock  = 1
+blocklen= 800000
+bitwidth= 16
+hdver   = 1
+order_off= 0
+
+files   = glob('%s/*.bin'%idir)
+files.sort()
+nFile   = len(files)
+#nFile   = 10
+print('nFile:', nFile)
+
+# intensity array
+arrInt  = np.ma.array(np.zeros((nFile, nAnt, nChan)), mask=True)  # masked by default
+winSec  = np.zeros(nFile)
+attrs   = {}
+attrs['idir'] = idir
+attrs['p0'] = p0
+attrs['nPack'] = nPack
+attrs['nBlock'] = nBlock
+attrs['blocklen'] = blocklen
+attrs['bitwidth'] = bitwidth
+attrs['hdver'] = hdver
+attrs['order_off'] = order_off
+
+dt0 = None
+for i in range(nFile):
+    fbin = files[i]
+    print('reading: %s (%d/%d)'%(fbin, i+1,nFile))
+    ftime = os.path.basename(fbin).split('.')[1]
+    dt = datetime.strptime('23'+ftime, '%y%m%d%H%M%S')
+    if (dt0 is None):
+        dt0 = dt
+        epoch0 = Time(dt0, format='datetime').to_value('unix')
+        epoch0 -= 3600*8    # convert to UTC
+        attrs['uix_utc_open'] = epoch0
+    winSec[i] = (dt-dt0).total_seconds()
+
+    fh = open(fbin, 'rb')
+    BM = loadFullbitmap(fh, nBlock, blocklen=blocklen)
+    bitmap = BM[p0:p0+nPack]
+    nValid = np.count_nonzero(bitmap)
+    fValid = float(nValid/nPack)
+    if (fValid < 0.1):
+        print('invalid block, skip!')
+        continue
+
+    tick, spec = loadSpec(fh, p0, nPack, bitmap=bitmap, bitwidth=bitwidth, order_off=order_off, hdver=hdver, verbose=1)
+    # spec.shape = (nFrame, nAnt, nChan)
+    aspec = np.ma.abs(spec).mean(axis=0)
+    arrInt[i] = aspec
+    arrInt.mask[i] = aspec.mask
+
+#print(winSec)
+#print(arrInt)
+
+adoneh5(ofile, arrInt, 'intensity')
+adoneh5(ofile, winSec, 'winSec')
+putAttrs(ofile, attrs)
+
+## bandpass normalization
+arrNInt = arrInt / arrInt.mean(axis=0)
+adoneh5(ofile, arrInt, 'norm.intensity')
+
+
+X, Y = np.meshgrid(winSec, freq, indexing='xy')
+## plotting
+for pt in range(2):
+    if (pt==0):
+        png = 'intensity.raw.png'
+        arr = arrInt
+    elif (pt==1):
+        png = 'intensity.norm.png'
+        arr = arrNInt
+    print('plotting:', png, '...')
+
+
+    fig, s2d = plt.subplots(4,4,figsize=(12,9), sharex=True, sharey=True)
+    sub = s2d.flatten()
+    for ii in range(4):
+        s2d[ii,0].set_ylabel('freq (MHz)')
+        s2d[3,ii].set_xlabel('time (sec)')
+
+    for ai in range(nAnt):
+        ax = sub[ai]
+        #ax.imshow(arrInt[:,ai].T, origin='lower', aspect='auto')
+        ax.pcolormesh(X,Y,arr[:,ai].T)
+
+
+    fig.tight_layout(rect=[0,0.03,1,0.95])
+    fig.subplots_adjust(wspace=0, hspace=0)
+    fig.savefig(png)
+    plt.close(fig)
+
+

@@ -15,7 +15,6 @@ from packet_func import *
 
 bitwidth = 4    # binary bit width
 hdver    = 1    # header version
-meta     = 0    # ring buffer or file metadata length in bytes
 
 bpp = 8192  # bytes per packet (payload size)
 #fpgaclock = 401.066667e6
@@ -55,7 +54,6 @@ options are:
                     # (default is the 4bit format)
     --hd VER        # header version. 1 or 2
                     # (%d)
-    --meta bytes    # ring buffer of file metadata length in bytes
     --p0 pack0      # the starting packet number
                     # disable autop0 (automatic switch block if p0=0 is bad)
     --blocklen blocklen
@@ -87,8 +85,6 @@ while inp:
         bitwidth = 16
     elif (k == '--hd'):
         hdver = int(inp.pop(0))
-    elif (k == '--meta'):
-        meta = int(inp.pop(0))
     elif (k == '--p0'):
         pack0 = int(inp.pop(0))
         autop0 = False
@@ -163,7 +159,7 @@ for fii,fin in enumerate(files):
     if (nBlock == 0):
         print('bitmap info not used.')
 
-    fullBM = loadFullbitmap(fh, nBlock, blocklen=packBlock, meta=meta)
+    fullBM = loadFullbitmap(fh, nBlock, blocklen=packBlock)
     p0 = pack0
     ap = autop0
     while (ap):
@@ -196,7 +192,7 @@ for fii,fin in enumerate(files):
         continue
 
     #tick, spec = loadSpec(fh, p0, npack, bpp, ppf, nBlock=nBlock, verbose=verbose, bitwidth=bitwidth)
-    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, order_off=order_off, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver, meta=meta)
+    tick, spec = loadSpec(fh, p0, npack, bpp, ppf, order_off=order_off, bitmap=bitmap, verbose=verbose, bitwidth=bitwidth, hdver=hdver)
     adata2d = np.abs(spec).mean(axis=0)
 
     fh.close()

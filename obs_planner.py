@@ -20,7 +20,7 @@ elim    = '0.'
 skey    = 't_set'
 bodies  = []
 tz      = 8   # Hilo time offset from UTC in hours
-site    = 'cafe'
+site    = 'fushan6'
 use_local = True # set to False to use UTC
 
 

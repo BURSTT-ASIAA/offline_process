@@ -6,8 +6,6 @@ import struct
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-from datetime import datetime
-from astropy.time import Time
 from astropy.stats import sigma_clip
 import warnings
 
@@ -75,7 +73,7 @@ def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1):
     return clk, pko, spec
 
 
-def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1, meta=0):
+def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1):
     '''
     load npack blocks of binary data from the open filehandle
     starting from pack0. each block is of pack_len bytes.
@@ -86,9 +84,6 @@ def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1,
     optional:
         order_off: packet order offset (buggy, keep =0 for now)
         hdlen: header length in bytes
-        bitwidth: data format keyword
-        hdver: header format keyword (1,2)
-        meta: ring buffer or file metadata length in bytes
 
     output:
         (masked array)
@@ -96,9 +91,8 @@ def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1,
         clock, shape=(npack,)
         order, shape=(npack,)
     '''
-
     pack_len = hdlen + bpp
-    b0 = pack0 * pack_len + meta
+    b0 = pack0 * pack_len
     fh.seek(b0)
 
     if (bitwidth==4):
@@ -235,7 +229,7 @@ def formSpec(data0, clock, order, ppf, nAnt=16, grp=2, nChan=1024, bitmap=None, 
     return data_tick, antSpec
 
 
-def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=1, meta=0):
+def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=1):
     '''
     a wrapper of loadBatch + formSpec
     input:
@@ -256,8 +250,6 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
         verbose: int; pass to formSpec
         bitwidth: size of the I/Q data (4 or 16)
                 (automatically determines the grp and ppf)
-        hdver: header version (1, 2)
-        meta: ring buffer or file metadata length in bytes
 
     output:
         data_tick, shape=(ntick,)
@@ -284,7 +276,7 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
         grp = 1
         ppf = 8
 
-    data0, clock, order = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver, meta=meta)
+    data0, clock, order = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver)
     tmp = formSpec(data0, clock, order, ppf, nAnt=nAnt, grp=grp, bitmap=bitmap, verbose=verbose)
 
     if (tmp is not None):
@@ -352,7 +344,7 @@ def makeBitmap(bitmap):
     return buf
 
 
-def loadFullbitmap(fh, nBlock, bpp=8192, hdlen=64, blocklen=1000000, version=1, meta=0):
+def loadFullbitmap(fh, nBlock, bpp=8192, hdlen=64, blocklen=1000000, version=1):
     '''
     version: 1
         the bitmap is located at the end of the buffer
@@ -378,7 +370,6 @@ def loadFullbitmap(fh, nBlock, bpp=8192, hdlen=64, blocklen=1000000, version=1, 
     nBytes = nTotal // 8        # bitmap length in bytes
     packlen = bpp + hdlen       # packet length in bytes
     starting = nTotal * packlen # the starting byte of the bitmap
-    starting += meta
 
     fh.seek(starting)
     buf = fh.read(nBytes)
@@ -501,147 +492,5 @@ def dataPack(data, bitwidth=4):
         buf = struct.pack('>%dI'%(nCh*nAnt), *arr)
 
     return buf
-
-
-def decHeader2(buf):
-    if (buf[58:64]!=b'RSTTTT'):
-        print('invalid header encountered')
-        return None
-
-    pcnt  = struct.unpack('<Q', buf[:8])[0]
-    tcnt  = struct.unpack('<Q', buf[8:16])[0]
-    epoch = struct.unpack('<I', buf[16:20])[0]
-    pps   = struct.unpack('<I', buf[20:24])[0]
-    order = struct.unpack('<H', buf[36:38])[0]
-
-    tmp = (pcnt, tcnt, epoch, pps, order)
-    return tmp
-
-
-def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0):
-    '''
-    extract epoch time from a list of files
-
-    if hdver==1, epoch time is extracted from the filename
-    the year is probably excluded from the filename and the yr is used
-    also the timezone of file system is needed
-
-    if hdver==2, epoch time is extracted from the header as
-    epoch_second+pps_count+2
-    '''
-
-    if (isinstance(files, (list, np.ndarray))):
-        nFile = len(files)
-    elif (isinstance(files, str)):  # a scalar
-        files = [files]
-        nFile = len(files)
-    else:
-        sys.exit('type error in filesEpoch')
-
-
-    if (hdver==2):
-        epoch = []
-        for i in range(nFile):
-            with open(files[i], 'rb') as fh:
-                md = fh.read(meta)
-                hd = fh.read(hdlen)
-            tmp = decHeader2(hd)
-            ep = tmp[2]+tmp[3]+2
-            epoch.append(ep)
-        epoch = np.array(epoch)
-
-    elif (hdver==1):
-        ftime0 = None
-        tsec = []
-        for fi in range(nFile):
-            fin = files[fi]
-            fbase = os.path.basename(fin)   # use 1st dir as reference
-
-            tmp = fbase.split('.')
-            ftpart = tmp[1]
-            ftstr = yr+ftpart
-            ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
-            if (ftime0 is None):
-                ftime0 = ftime
-                unix0 = Time(ftime0, format='datetime').to_value('unix')    # local time
-                unix0 -= 3600.*tz                                           # convert to UTC
-
-            dt = (ftime - ftime0).total_seconds()
-            tsec.append(dt)
-        epoch = np.array(tsec) + unix0
-
-    return epoch
-
-
-def beamUnpack(buf, hdlen=64, blocklen=128000, verbose=0):
-    '''
-    unpack the beam_out data
-    format is 4-bit
-    also assumes the order is correct
-    '''
-    ppf = 2
-    nChan = 1024
-    blockframes = blocklen//ppf
-    blockbytes = blockframes*nChan   # 2 packet per frame, 1 byte per channel
-    nblock = len(buf) // (blockbytes+hdlen)
-
-    srate = 400e6   # samples per sec
-    prate = srate/nChan*ppf # packets per sec
-
-    spec = np.zeros((nblock,blockbytes), dtype=np.complex64)
-    epoch = np.zeros(nblock)
-    pcnt = np.zeros(nblock, dtype=np.int64)
-    for i in range(nblock):
-        i0 = blockbytes*i
-        hd = buf[i0:i0+hdlen]
-        tmp = decHeader2(hd)
-        epoch[i] = tmp[2] + 2 + tmp[0]/prate
-        pcnt[i] = tmp[0]
-
-        arr = struct.unpack('>%dB'%blockbytes, buf[i0+hdlen:i0+hdlen+blockbytes])
-        for k in range(blockbytes):
-            progress = 100*(k+1)/blockbytes
-            if (verbose>0):
-                if (progress%10==0.):
-                    print('progress %d: %d bytes'%(progress, k))
-            bit8 = arr[k]
-            bit4_i = bit8 & 0x0f
-            ai = toSigned(bit4_i, 4)
-            #aq = toSigned(bit4_i, 4)
-            bit4_q = (bit8 & 0xf0) >> 4
-            aq = toSigned(bit4_q, 4)
-            #ai = toSigned(bit4_q, 4)
-            spec[i,k] = ai + 1.j*aq
-
-    spec = spec.reshape((-1,nChan))
-
-    return spec, pcnt, epoch
-
-
-def hdScanner(fname, meta=64, hdlen=64, sep=8256):
-    '''
-    scan the binary file and return the packet counter
-    '''
-    nTotal = os.path.getsize(fname)
-    fh = open(fname, 'rb')
-    pkcnt = []
-    order = []
-    p = meta
-    while (p < nTotal):
-        fh.seek(p)
-        hd = fh.read(hdlen)
-        tmp = decHeader2(hd)
-        if (not tmp is None):
-            pkcnt.append(tmp[0])
-            order.append(tmp[4])
-        else:
-            pkcnt.append(-1)
-            order.append(-1)
-            print('bad header at', p)
-        p += sep
-    fh.close()
-    return np.array(pkcnt), np.array(order)
-
-
 
 

@@ -1,0 +1,59 @@
+#!/usr/bin/env python
+
+from packet_func import *
+
+
+
+def decHeader2(buf):
+    if (buf[58:64]!=b'RSTTTT'):
+        print('invalid header encountered')
+        return None
+
+    pcnt  = struct.unpack('<Q', buf[:8])[0]
+    tcnt  = struct.unpack('<Q', buf[8:16])[0]
+    epoch = struct.unpack('<I', buf[16:20])[0]
+    pps   = struct.unpack('<I', buf[20:24])[0]
+    order = struct.unpack('<H', buf[36:38])[0]
+
+    tmp = (pcnt, tcnt, epoch, pps, order)
+    return tmp
+
+inp = sys.argv[0:]
+pg  = inp.pop(0)
+
+nPack   = 3
+packSize = 8256
+headSize = 64
+
+usage = '''
+display header of the first few packets from the binary file
+syntax:
+    %s <file(s)>
+
+''' % (pg,)
+
+if (len(inp)<1):
+    sys.exit(usage)
+
+files = []
+while(inp):
+    k = inp.pop(0)
+    files.append(k)
+
+nFile = len(files)
+
+#bfile = '/burstt1/disk1/data/fpga0.0913235115.bin'
+for j in range(nFile):
+    bfile = files[j]
+    print('file:', bfile)
+
+    fh = open(bfile, 'rb')
+    for i in range(nPack):
+        off = packSize * i
+        fh.seek(off)
+        hd = fh.read(headSize)
+        tmp = decHeader2(hd)
+        print(tmp)
+    fh.close()
+
+
