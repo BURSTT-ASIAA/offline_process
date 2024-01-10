@@ -26,3 +26,4 @@ This is a collection of tools for offline processing of the BURSTT baseband data
 *   YTLA_CAL.csv:: database of targets of interests (e.g. calibrators or science targets)
 
 *   site_conf/:: local antenna position files for various sites.
+*   the filename should start with the site name. the site coordinates should be defined in obsSite() function in 'pyplanet.py'
