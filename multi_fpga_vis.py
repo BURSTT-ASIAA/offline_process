@@ -27,7 +27,6 @@ byteHeader  = 64        # packet header size in bytes
 #packBlock   = 1000000   # num of packets in a block
 packBlock   = 800000   # num of packets in a block
 byteBMBlock = packBlock//8  # bitmap size of a block in bytes
-byteBlock   = (bytePayload+byteHeader)*packBlock + byteBMBlock  # block size in bytes
 verbose     = False
 bitwidth    = 4
 ppf         = 2
@@ -155,6 +154,8 @@ while (inp):
 
 specDur = 1.e-6/(flim[1]-flim[0])*nChan    # duration of one spectrum in seconds
 freq = np.linspace(flim[0], flim[1], nChan, endpoint=False)
+
+byteBlock   = (bytePayload+byteHeader)*packBlock + byteBMBlock  # block size in bytes
 
 if (fout.endswith('.vish5')):
     cdir = fout.replace('.vish5', '.check')
