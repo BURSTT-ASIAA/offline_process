@@ -21,7 +21,7 @@ def decHeader2(buf):
 inp = sys.argv[0:]
 pg  = inp.pop(0)
 
-nPack   = 3
+nPack   = 4
 packSize = 8256
 headSize = 64
 meta    = 0

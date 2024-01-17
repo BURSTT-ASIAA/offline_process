@@ -20,11 +20,11 @@ nBlock  = 0
 autoblock = True
 nPack   = 10000
 p0      = 0
-blocklen = 128000
+blocklen = 800000
 bytePack = 8256
-hdver   = 2
+hdver   = 1
 no_bitmap = False
-meta    = 64
+meta    = 0
 
 #idir = 'data_monitor'
 fout = 'win_eigenmodes.h5'
