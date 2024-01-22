@@ -155,7 +155,7 @@ for i in range(nFile):
     print('odir =', odir, file=FO)
     print('beam0 =', beam0, file=FO)
     print('ant_flag =', ant_flag, file=FO)
-    print('ant_sel =', asel)
+    print('ant_sel =', asel, file=FO)
 
     # bandpass normalization for the scaled mode
     # coeff mode use the same normalization
