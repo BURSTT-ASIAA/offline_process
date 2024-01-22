@@ -26,7 +26,6 @@ beam0 = -16     # offset toward East
 #beam0 = -7.5   # symmetric about zenith
 #feig = 'fpga0.1214114800.bin.eigen.h5'
 use_coeff = False
-fpga_id = -1
 
 
 inp = sys.argv[0:]
@@ -37,9 +36,7 @@ derive beamform parameters from preprocssed eigenmodes
 multiple files can be given, each will be processed independently
 
 syntax:
-    %s <eigen.h5_file> <FPGA_ID> [options]
-
-    FPGA_ID:    0, 1, 2, 3
+    %s <eigen.h5_file(s)> [options]
 
     options are:
     --coeff             # use the coeff normalized eigenmodes
@@ -59,7 +56,7 @@ syntax:
 
 ''' % (pg, beam0, ', '.join(map(str,asel)))
 
-if (len(inp)<2):
+if (len(inp)<1):
     sys.exit(usage)
 
 files = []
@@ -83,10 +80,6 @@ while (inp):
         sys.exit('unknown option: %s'%k)
     else:
         files.append(k)
-        fpga_id = int(inp.pop(0))
-
-if (fpga_id < 0 or fpga_id > 3):
-    sys.exit('fpga_id should be 0, 1, 2, or 3')
 
 nFile = len(files)
 print('nFile:', nFile, 'files:', files)
@@ -146,13 +139,6 @@ for i in range(nFile):
     if (not os.path.isdir(odir)):
         call('mkdir %s'%odir, shell=True)
 
-    ofile = '%s/fpga%d.info.txt' % (odir, fpga_id)
-    FO = open(ofile, 'w')
-
-    print('beam0 =', beam0, file=FO)
-    print('ant_flag =', ant_flag, file=FO)
-    print('ant_sel =', asel)
-
     # bandpass normalization for the scaled mode
     # coeff mode use the same normalization
     N2  = getData(feig, 'N2_scale') # shape: (nAnt, nChan)
@@ -211,21 +197,18 @@ for i in range(nFile):
     #BEQ /= np.ma.abs(BEQ).max()
     print('debug: BEQ.max', BEQ.max())
     BEQ /= BEQ.max()
-    BEQ *= 4096
+    BEQ *= 8192 #4096
     #BEQ.fill_Value = 0.
     #BEQ = BEQ.filled()
     BEQ[BEQ.mask] = 0.
     BEQ[BEQ>4096] = 4096
     print('debug: BEQ min/max', BEQ.min(), BEQ.max())
     print('debug: norm BEQ min/max', BEQ.min()/4096*127, BEQ.max()/4096*127)
-    print('debug: norm BEQ median', np.ma.median(BEQ)/4096*127)
-    print('BEQ min,max =', BEQ.min(), BEQ.max(), file=FO)
-    print('norm BEQ min,max,med =', BEQ.min()/4096*127, BEQ.max()/4096*127, np.ma.median(BEQ)/4096*127, file=FO)
+    print('debug: norm BEQ median', np.median(BEQ)/4096*127)
 
     ## override BEQ, no equalization
     #BEQ = np.ones((nAnt, nChan), dtype=float)*127
 
-    FO.close()
 
     #allBFM = [BFM0, BFM1, BFM2]     # phase-only beamform matrix
     #allTYP = ['raw', 'pos', 'neg']
@@ -236,7 +219,7 @@ for i in range(nFile):
     for ii in range(nType):
         tp = allTYP[ii]
         yy = allBFM[ii]
-        ofile = '%s/fpga%d.%s.npy'%(odir, fpga_id, tp)
+        ofile = '%s/%s.npy'%(odir, tp)
         print(ofile)
 
         BFM = np.zeros((nBeam, nAnt, nChan, 2), dtype=np.short)
