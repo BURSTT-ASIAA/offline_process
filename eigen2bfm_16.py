@@ -91,6 +91,8 @@ if (fpga_id < 0 or fpga_id > 3):
 nFile = len(files)
 print('nFile:', nFile, 'files:', files)
 
+cwd = os.getcwd()
+
 y = np.arange(nAnt)
 ch = np.arange(nChan)
 CC, YY = np.meshgrid(ch, y)
@@ -149,6 +151,8 @@ for i in range(nFile):
     ofile = '%s/fpga%d.info.txt' % (odir, fpga_id)
     FO = open(ofile, 'w')
 
+    print('cwd =', cwd, file=FO)
+    print('odir =', odir, file=FO)
     print('beam0 =', beam0, file=FO)
     print('ant_flag =', ant_flag, file=FO)
     print('ant_sel =', asel)
