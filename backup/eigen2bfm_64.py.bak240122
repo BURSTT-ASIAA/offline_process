@@ -86,7 +86,6 @@ while (inp):
     else:
         files.append(k)
 
-cwd = os.getcwd()
 
 y = np.arange(nAnt)
 ch = np.arange(nChan)
@@ -137,13 +136,6 @@ winSec = getData(feig, 'winSec')
 # coeff mode use the same normalization
 N2_64  = getData(feig, 'N2_scale') # shape: (nAnt, nChan)
 N2_64.mask[N2_64==0] = True
-# masking flagged antennas
-for i in range(nRow):
-    for j in ant_flag[i]:
-        k = i*nAnt + j
-        N2_64.mask[k] = True
-BEQ_64 = 1./N2_64
-
 
 # eigenvectors from the scaled mode
 if (use_coeff):
@@ -158,17 +150,8 @@ odir = '%s.%s.out'%(feig, oname)
 if (not os.path.isdir(odir)):
     call('mkdir %s'%odir, shell=True)
 
-
 for i in range(nRow):
     fpga = 'fpga%d'%(i+minRow)
-    ofile = '%s/%s.info.txt'%(odir, fpga)
-    FO = open(ofile, 'w')
-
-    print('cws =', cwd, file=FO)
-    print('odir =', odir, file=FO)
-    print('beam0 =', beam0, file=FO)
-    print('ant_flag =', ant_flag[i], file=FO)
-    print('ant_sel =', asel, file=FO)
 
     a0 = i*nAnt
     V2 = V2_64[:,a0:a0+nAnt]
@@ -224,8 +207,8 @@ for i in range(nRow):
     #N2 = np.ma.median(N2, axis=1, keepdims=True)
     BEQ = 1./N2     # shape: (nAnt, nChan)
     #BEQ /= np.ma.abs(BEQ).max()
-    print('debug: BEQ_64.max', BEQ_64.max())
-    BEQ /= BEQ_64.max()
+    print('debug: BEQ.max', BEQ.max())
+    BEQ /= BEQ.max()
     BEQ *= 4096
     #BEQ.fill_Value = 0.
     #BEQ = BEQ.filled()
@@ -234,10 +217,6 @@ for i in range(nRow):
     print('debug: BEQ min/max', BEQ.min(), BEQ.max())
     print('debug: norm BEQ min/max', BEQ.min()/4096*127, BEQ.max()/4096*127)
     print('debug: norm BEQ median', np.median(BEQ)/4096*127)
-    print('BEQ min,max =', BEQ.min(), BEQ.max(), file=FO)
-    print('norm BEQ min,max,med =', BEQ.min()/4096*127, BEQ.max()/4096*127, np.ma.median(BEQ)/4096*127, file=FO)
-
-    FO.close()
 
     ## override BEQ, no equalization
     #BEQ = np.ones((nAnt, nChan), dtype=float)*127
