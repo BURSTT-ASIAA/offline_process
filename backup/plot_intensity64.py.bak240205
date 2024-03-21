@@ -34,7 +34,7 @@ bitwidth= 4
 hdver   = 2
 order_off= -2
 meta    = 64
-verbose = 0
+verbose = 1
 
 odir2   = 'intensity.plots'
 read_raw = False
@@ -61,7 +61,6 @@ options are:
     --redo          # force reading raw data
     --zlim zmin zmax# set the min/max color scale
     --no-bitmap     # ignore bitmap from the data
-    -v              # verbose
 
 ''' % (pg, nPack, p0, hdver, meta, nBlock, blocklen)
 
@@ -102,8 +101,6 @@ while (inp):
         rings.append(ring_id)
     elif (k=='--no-bitmap'):
         no_bitmap = True
-    elif (k=='-v'):
-        verbose=1
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -120,23 +117,19 @@ freqs    = []
 for j in range(nDir):
     idir = dirs[j]
     ring_id = rings[j]
-    ring_name = 'ring%d'%ring_id
 
     i0 = nChan*ring_id
     freq = freq0[i0:i0+nChan]
     order_off = -2-ring_id      # for 64-ant
     freqs.append(freq)
 
-    if (ring_name in idir):
-        ofile = idir + '.inth5'
-    else:
-        ofile = '%s.%s.inth5'%(idir, ring_name)
+    ofile = idir + '.inth5'
     print('output to:', ofile)
     odir = '%s.plots'%ofile
 
     adoneh5(ofile, freq, 'freq')
 
-    files   = glob('%s/%s.*.bin'%(idir,ring_name))
+    files   = glob('%s/*.bin'%idir)
     files.sort()
     nFile   = len(files)
     if (False):
@@ -276,7 +269,6 @@ for j in range(nRow):
             y2d = arr[:,ai].T
             y1d = y2d.mean(axis=0)
             ax2.plot(winDT, y1d)
-            ax2.set_ylim(vmin, vmax)
             ax2.grid()
 
 

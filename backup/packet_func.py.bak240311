@@ -609,12 +609,14 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0):
     return epoch
 
 
-def beamUnpack(buf, hdlen=64, blocklen=128000, nChan=1024, ppf=2, verbose=0):
+def beamUnpack(buf, hdlen=64, blocklen=128000, verbose=0):
     '''
     unpack the beam_out data
     format is 4-bit
     also assumes the order is correct
     '''
+    ppf = 2
+    nChan = 1024
     blockframes = blocklen//ppf
     blockbytes = blockframes*nChan   # 2 packet per frame, 1 byte per channel
     nblock = len(buf) // (blockbytes+hdlen)
@@ -628,8 +630,6 @@ def beamUnpack(buf, hdlen=64, blocklen=128000, nChan=1024, ppf=2, verbose=0):
     for i in range(nblock):
         i0 = blockbytes*i
         hd = buf[i0:i0+hdlen]
-        if (verbose):
-            print('header:', hd)
         tmp = decHeader2(hd)
         epoch[i] = tmp[2] + 2 + tmp[0]/prate
         pcnt[i] = tmp[0]
@@ -650,42 +650,6 @@ def beamUnpack(buf, hdlen=64, blocklen=128000, nChan=1024, ppf=2, verbose=0):
             spec[i,k] = ai + 1.j*aq
 
     spec = spec.reshape((-1,nChan))
-
-    return spec, pcnt, epoch
-
-
-def loadBeam(fname, nStart=0, nBlock=None, blocklen=128000, nChan=1024, ppf=2, hdlen=64, verbose=0):
-    '''
-    load all data from a voltage beam file (e.g. 400 blocks)
-    if nBlock is specified, load the number of blocks
-    six blocks corresponds to about 1sec
-    if nBlock is not specified, load all blocks
-
-    output:
-        spec    shape=(nBlock, nFrame, nChan), complex64
-        pcnt    shape=(nBlock,), int64
-        epoch   shape=(nBlock,), float
-    '''
-    nFrame = blocklen//ppf
-    blockByte = hdlen + nFrame*nChan
-    if (nBlock is None):
-        fs = os.path.getsize(fname)
-        nBlock = fs // blockByte
-
-    spec = np.zeros((nBlock, nFrame, nChan), dtype=np.complex64)
-    pcnt = np.zeros(nBlock, dtype=np.int64)
-    epoch = np.zeros(nBlock)
-
-    with open(fname, 'rb') as fh:
-        for i in range(nBlock):
-            print('... block', i+nStart)
-            start = blockByte*(i+nStart)
-            fh.seek(start)
-            buf = fh.read(blockByte)
-            sp, pc, ep = beamUnpack(buf, blocklen=blocklen, ppf=ppf, nChan=nChan, hdlen=hdlen, verbose=verbose)
-            spec[i] = sp
-            pcnt[i] = pc[0]
-            epoch[i] = ep[0]
 
     return spec, pcnt, epoch
 
