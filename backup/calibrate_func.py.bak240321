@@ -60,24 +60,7 @@ def Cov2SVD(Cov):
     return U, S, Vh
 
 
-def genCov(i1, i2, ftdata):    # internal function for makeCov
-    print('in genCov:', i1, i2)
-    nAnt = ftdata.shape[0]
-    #arr1 = ftdata[:,:,i1:i2]
-    #arr2 = nftdata[:,:,i1:i2]
-    nTmp = i2-i1
-    tmpCov = np.zeros((nAnt, nAnt, nTmp), dtype=complex)
-    for ai in range(nAnt):
-        tmpCov[ai,ai,:] = 1+0j
-    for ai in range(nAnt-1):
-        for aj in range(ai+1,nAnt):
-            y = ftdata[ai] * ftdata[aj].conjugate()
-            tmpCov[ai,aj] = y.mean(axis=0)
-            tmpCov[aj,ai] = tmpCov[ai,aj].conjugate()
-    return i1, i2, tmpCov
-
-
-def makeCov(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool=1):
+def makeCov(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False):
     '''
     generate covariance matrix from the waterfall spectra
     input:
@@ -91,19 +74,18 @@ def makeCov(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool=
         bandpass: whether to normalize the bandpass
 
     output:
-        Cov, shape: (nAnt, nAnt, nChan)
-        norm, shape: (nAnt, nChan)
+        Cov, shape: (nAnt, nAnt, nchan)
+        norm, shape: (nAnt, nchan)
     '''
-    print('in makeCov, nPool:', nPool)
 
     ftdata = np.ma.asarray(ftdata)
-    (nAnt, nFrame, nChan) = ftdata.shape
+    (nAnt, nframe, nchan) = ftdata.shape
 
     #ftdata -= np.ma.median(ftdata, axis=1, keepdims=True)
     mr = np.ma.median(ftdata.real, axis=1, keepdims=True)
     mi = np.ma.median(ftdata.imag, axis=1, keepdims=True)
-    nftdata = ftdata - (mr + 1j*mi)
-    norm2 = np.ma.abs(nftdata)
+    tmp = ftdata - (mr + 1j*mi)
+    norm2 = np.ma.abs(tmp)
     norm = norm2.mean(axis=1)
     avg_norm = norm.mean(axis=0, keepdims=True)
 
@@ -120,31 +102,16 @@ def makeCov(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool=
         # norm contains only antenna relative gain
     
     if (scale):
-        nftdata /= norm.reshape((nAnt, 1, nChan))
+        tmp /= norm.reshape((nAnt, 1, nchan))
 
-    cftdata = ftdata / np.ma.abs(ftdata)    # for coefficient
-
-    Cov = np.zeros((nAnt, nAnt, nChan), dtype=complex)
-
-    nChunk = nChan//nPool
-    if (nChan != nPool*nChunk):
-        print('warinng: inconsistent channel split in makeCov!')
-
-    star_args = []
-    for i in range(nPool):
-        i1 = nChunk*i
-        i2 = nChunk*(i+1)
-        if (coeff):
-            arr1 = cftdata[:,:,i1:i2]
-        else:
-            arr1 = nftdata[:,:,i1:i2]
-        star_args.append((i1,i2,arr1))
-    #print(star_args)
-
-    with mp.Pool() as pool:
-        for result in pool.starmap(genCov, star_args):
-            i1, i2, tmpCov = result
-            Cov[:,:,i1:i2] = tmpCov
+    Cov = np.zeros((nAnt, nAnt, nchan), dtype=complex)
+    for ai in range(nAnt):
+        for aj in range(nAnt):
+            if (coeff):
+                y = ftdata[ai] * ftdata[aj].conjugate() / np.ma.abs(ftdata[ai]) / np.ma.abs(ftdata[aj])
+            else:
+                y = tmp[ai]*tmp[aj].conjugate()
+            Cov[ai,aj] = y.mean(axis=0)
 
     for ai in ant_flag:
         Cov[ai] = 0.j
