@@ -3,6 +3,21 @@
 from packet_func import *
 
 
+
+def decHeader2(buf):
+    if (buf[58:64]!=b'RSTTTT'):
+        print('invalid header encountered')
+        return None
+
+    pcnt  = struct.unpack('<Q', buf[:8])[0]
+    tcnt  = struct.unpack('<Q', buf[8:16])[0]
+    epoch = struct.unpack('<I', buf[16:20])[0]
+    pps   = struct.unpack('<I', buf[20:24])[0]
+    order = struct.unpack('<H', buf[36:38])[0]
+
+    tmp = (pcnt, tcnt, epoch, pps, order)
+    return tmp
+
 inp = sys.argv[0:]
 pg  = inp.pop(0)
 
@@ -10,7 +25,6 @@ nPack   = 4
 packSize = 8256
 headSize = 64
 meta    = 0
-ip      = False
 
 usage = '''
 display header of the first few packets from the binary file
@@ -19,7 +33,6 @@ syntax:
 
 options are:
     --meta bytes    # ring buffer or file metadata length in bytes
-    --ip            # to also display the local and dest IPs
 
 ''' % (pg,)
 
@@ -31,8 +44,6 @@ while(inp):
     k = inp.pop(0)
     if (k == '--meta'):
         meta = int(inp.pop(0))
-    elif (k == '--ip'):
-        ip = True
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -54,7 +65,7 @@ for j in range(nFile):
         off = packSize * i + meta
         fh.seek(off)
         hd = fh.read(headSize)
-        tmp = decHeader2(hd, ip=ip)
+        tmp = decHeader2(hd)
         print(tmp)
     fh.close()
 

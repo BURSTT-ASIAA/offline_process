@@ -86,9 +86,9 @@ while(inp):
         t2str = inp.pop(0)
 
 
-if (site.lower() == 'fushan6' and theta_rot_deg==0.):
+if (site.lower() == 'fushan6'):
     theta_rot_deg = -1.8
-elif (site.lower() == 'longtien' and theta_rot_deg==0.):
+elif (site.lower() == 'longtien'):
     theta_rot_deg = 0.5
 
 

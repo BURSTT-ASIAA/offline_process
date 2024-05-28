@@ -195,7 +195,7 @@ for j in range(nDir):
             fh = open(fbin, 'rb')
             #tick, spec = loadSpec(fh, p0, nPack, bitmap=bitmap, bitwidth=bitwidth, order_off=order_off, hdver=hdver, verbose=1, meta=meta)
             # spec.shape = (nFrame, nAnt, nChan)
-            ringSpec = loadNode(fh, p0, nPack, order_off=order_off, verbose=verbose, meta=meta, nFPGA=nRow)
+            ringSpec = loadNode(fh, p0, nPack, order_off=order_off, verbose=verbose, meta=meta, nFPGA=nRow, no_bitmap=no_bitmap)
             # ringSpec.shape = (nRow, nFrame, nAnt, nChan)
             fh.close()
 

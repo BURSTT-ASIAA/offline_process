@@ -295,7 +295,7 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
     return data_tick, antSpec
 
 
-def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=2, meta=64, nFPGA=4, no_bitmap=False):
+def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=2, meta=64, nFPGA=4, blocklen=128000):
     '''
     load the ring buffer file of one node
 
@@ -312,11 +312,8 @@ def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdl
     mdict = metaRead(fh)
     blocklen = mdict['packet_number']
     nBlock = mdict['block_number']
-    print('debug:', nBlock, blocklen, meta)
     BM = loadFullbitmap(fh, nBlock, blocklen=blocklen, meta=meta)
     bitmap = BM[pack0:pack0+npack]
-    if (no_bitmap):
-        bitmap = np.ones(npack, dtype=bool)
 
 
     data0, clock0, order0 = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver, meta=meta)
@@ -324,7 +321,6 @@ def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdl
     clock1 = clock0.reshape((-1,nFPGA))
     order1 = order0.reshape((-1,nFPGA))
     bitmap1 = bitmap.reshape((-1,nFPGA))
-
 
     antSpec = []
     for i in range(nFPGA):
@@ -543,7 +539,7 @@ def dataPack(data, bitwidth=4):
     return buf
 
 
-def decHeader2(buf, ip=False):
+def decHeader2(buf):
     if (buf[58:64]!=b'RSTTTT'):
         print('invalid header encountered')
         return None
@@ -553,17 +549,12 @@ def decHeader2(buf, ip=False):
     epoch = struct.unpack('<I', buf[16:20])[0]
     pps   = struct.unpack('<I', buf[20:24])[0]
     order = struct.unpack('<H', buf[36:38])[0]
-    lip   = struct.unpack('<4B', buf[24:28])
-    dip   = struct.unpack('<4B', buf[28:32])
 
     tmp = (pcnt, tcnt, epoch, pps, order)
-    if (ip):
-        tmp += ('%d.%d.%d.%d'%tuple(np.flip(lip)),)
-        tmp += ('%d.%d.%d.%d'%tuple(np.flip(dip)),)
     return tmp
 
 
-def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024, ppf=2):
+def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0):
     '''
     extract epoch time from a list of files
 
@@ -572,10 +563,7 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024
     also the timezone of file system is needed
 
     if hdver==2, epoch time is extracted from the header as
-    [old] epoch_second+pps_count+2
-    [new] epoch_second + 2 + pack_cnt/(frate*ppf)
-    where frate is the frame per second
-    ppf is packet per frame
+    epoch_second+pps_count+2
     '''
 
     if (isinstance(files, (list, np.ndarray))):
@@ -588,15 +576,13 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024
 
 
     if (hdver==2):
-        prate = frate*ppf
         epoch = []
         for i in range(nFile):
             with open(files[i], 'rb') as fh:
                 md = fh.read(meta)
                 hd = fh.read(hdlen)
             tmp = decHeader2(hd)
-            #ep = tmp[2]+tmp[3]+2
-            ep = tmp[2] + 2 + tmp[0]/prate
+            ep = tmp[2]+tmp[3]+2
             epoch.append(ep)
         epoch = np.array(epoch)
 
@@ -735,7 +721,6 @@ def metaRead(fh, meta=64, dict_out=True):
     if dict_out is True, a dictionary is returned
     otherwise, the tuple is returned
     '''
-    fh.seek(0)
     buf = fh.read(meta)
 
     spec = [

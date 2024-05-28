@@ -1,0 +1,4 @@
+## add the following to your $HOME/.bashrc
+export PATH1=$PATH
+alias bda="export PATH=$PATH:/data/kylin/bin; export PYTHONPATH=/data/kylin/bin; . mod_activate.sh bursttda"
+alias bda_off="conda deactivate; module rm python/miniconda3; export PATH=$PATH1; unset PYTHONPATH"

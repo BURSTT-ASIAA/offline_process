@@ -29,8 +29,6 @@ use_coeff = False
 ## for 64-ant, row0--row3
 nRow = 4
 minRow = 0
-dirname = '64ant_%s' % time.strftime('%y%m%d_%Hh')
-medBEQ  = 32.
 
 
 inp = sys.argv[0:]
@@ -59,10 +57,8 @@ syntax:
                         # default: %.1f
     --vis_sel '....'    # specify the 4 antenna numbers used for visibility
                         # default: [%s]
-    --beq <med_BEQ>     # set target median value of the BFM parameters
-                        # range: (0, 127), default: %.0f
 
-''' % (pg, beam0, ', '.join(map(str,asel)), medBEQ)
+''' % (pg, beam0, ', '.join(map(str,asel)))
 
 if (len(inp)<1):
     sys.exit(usage)
@@ -80,8 +76,6 @@ while (inp):
         beam0 = int(inp.pop(0))
     elif (k == '--aconf'):
         aconf = inp.pop(0)
-    elif (k == '--beq'):
-        medBEQ = float(inp.pop(0))
     elif (k == '--vis_sel'):
         tmp = inp.pop(0)
         asel = [int(x) for x in tmp.split()]
@@ -97,8 +91,6 @@ cwd = os.getcwd()
 y = np.arange(nAnt)
 ch = np.arange(nChan)
 CC, YY = np.meshgrid(ch, y)
-
-BEQ4k = medBEQ*32   # medBEQ range (0, 127); BEQ4k range (0, 4096)
 
 # loading antenna positions
 if (aconf == '1m'):
@@ -130,45 +122,20 @@ BFM0 = np.exp(+2.j*np.pi*pos.reshape((1,nAnt,1))/lamb.reshape((1,1,nChan))*sin_t
 #TauCorr = np.exp(-2.j*np.pi*antTau.reshape((1,nAnt,1))*fMHz.reshape((1,1,nChan))*1e-3)
 
 ## identity matrix, for antenna voltages in 4bit with calibration and EQ
-IDT0 = np.zeros((nBeam,nAnt,nChan), dtype=complex)
+IDT = np.zeros((nBeam,nAnt,nChan), dtype=complex)
 for ai in range(nAnt):
-    IDT0[ai,ai,:] = 1+0j
+    IDT[ai,ai,:] = 1+0j
 
 
-if (use_coeff):
-    tgtVec = 'V3_coeff'
-    oname = 'coeff'
-else:
-    tgtVec = 'V2_scale'
-    oname = 'scale'
+feig = files[0]
+print('processing:', feig)
 
-N2_64 = None
-V2_64 = None
-for i in range(len(files)):
-    feig = files[i]
-    print('loading N2 and V2 from:', feig)
+# loading the phase correction
+winSec = getData(feig, 'winSec')
 
-    # loading the phase correction
-    #winSec = getData(feig, 'winSec')
-
-    # bandpass normalization for the scaled mode
-    # coeff mode use the same normalization
-    # use N3 if it exists
-    tmp  = getData(feig, 'N3_scale') # shape: (nAnt, nChan)
-    if (tmp is None):   # fallback to N2 if not
-        tmp  = getData(feig, 'N2_scale') # shape: (nAnt, nChan)
-    if (N2_64 is None):
-        N2_64 = tmp
-    else:
-        N2_64 *= tmp
-
-    # eigenvectors from the scaled mode
-    tmp  = getData(feig, tgtVec) # shape: (nChan, nAnt, nMode)
-    if (V2_64 is None):
-        V2_64 = tmp
-    else:
-        V2_64 *= tmp
-
+# bandpass normalization for the scaled mode
+# coeff mode use the same normalization
+N2_64  = getData(feig, 'N2_scale') # shape: (nAnt, nChan)
 N2_64.mask[N2_64==0] = True
 # masking flagged antennas
 for i in range(nRow):
@@ -176,12 +143,18 @@ for i in range(nRow):
         k = i*nAnt + j
         N2_64.mask[k] = True
 BEQ_64 = 1./N2_64
-## set median BEQ to 32 after scaling to 128 or 1024 after scaling to 4096
-BEQ_64 *= (BEQ4k/np.ma.median(BEQ_64))
-BEQ_64[BEQ_64>4096] = 4096
 
 
-odir = '%s.%s.out'%(dirname, oname)
+# eigenvectors from the scaled mode
+if (use_coeff):
+    V2_64  = getData(feig, 'V3_coeff') # shape: (nChan, nAnt, nMode)
+    oname = 'coeff'
+else:
+    V2_64  = getData(feig, 'V2_scale') # shape: (nChan, nAnt, nMode)
+    oname = 'scale'
+
+
+odir = '%s.%s.out'%(feig, oname)
 if (not os.path.isdir(odir)):
     call('mkdir %s'%odir, shell=True)
 
@@ -200,12 +173,8 @@ for i in range(nRow):
     a0 = i*nAnt
     V2 = V2_64[:,a0:a0+nAnt]
     N2 = N2_64[a0:a0+nAnt]
-    BEQ = BEQ_64[a0:a0+nAnt]
     for ai in ant_flag[i]:
         N2.mask[ai] = True
-
-    renorm = float(nAnt/(nAnt-len(ant_flag[i])))
-    print('renorm =', renorm, file=FO)
 
     # take the leading eigenmode corresponding to the calibrator (at transit time)
     refV2  = V2[:,:,-1]         # averaged window, last mode
@@ -219,7 +188,7 @@ for i in range(nRow):
     #BFM2 = BFM0 * TauCorr.conjugate()  # neg phase correction
     # BFM.shape = (nBeam, nAnt, nChan)
 
-    IDT = IDT0 * TauCorr  # positive correction
+    IDT *= TauCorr  # positive correction
 
     ## intensity for visibility
     nsel = len(asel)
@@ -251,21 +220,17 @@ for i in range(nRow):
 
 
     # bandpass equalization
-    #print('debug: N2 min/max', N2.min(), N2.max(), np.ma.median(N2, axis=1))
+    print('debug: N2 min/max', N2.min(), N2.max(), np.ma.median(N2, axis=1))
     #N2 = np.ma.median(N2, axis=1, keepdims=True)
-    #BEQ = 1./N2     # shape: (nAnt, nChan)
+    BEQ = 1./N2     # shape: (nAnt, nChan)
     #BEQ /= np.ma.abs(BEQ).max()
-    #print('debug: BEQ_64.max', BEQ_64.max())
-    #BEQ /= BEQ_64.max()
-    #BEQ *= 4096
+    print('debug: BEQ_64.max', BEQ_64.max())
+    BEQ /= BEQ_64.max()
+    BEQ *= 4096
     #BEQ.fill_Value = 0.
     #BEQ = BEQ.filled()
-
-    ## renormalize to account for flagged antennas
-    BEQ *= renorm
-
-    ## set max value
     BEQ[BEQ.mask] = 0.
+    BEQ[BEQ>4096] = 4096
     print('debug: BEQ min/max', BEQ.min(), BEQ.max())
     print('debug: norm BEQ min/max', BEQ.min()/4096*127, BEQ.max()/4096*127)
     print('debug: norm BEQ median', np.median(BEQ)/4096*127)
@@ -322,7 +287,7 @@ for i in range(nRow):
                     ax = s2d[ii,0]
                     ax.set_ylabel('ant_id')
 
-                fig.suptitle('%s, BFM %s by beams'%(files[0], ptstr))
+                fig.suptitle('%s, BFM %s by beams'%(feig, ptstr))
 
             elif (pt==2):
                 for bm in range(nAnt):
@@ -336,7 +301,7 @@ for i in range(nRow):
                     ax = s2d[ii,0]
                     ax.set_ylabel('abs(BFM)')
 
-                fig.suptitle('%s, ant weighting by beams'%(files[0],))
+                fig.suptitle('%s, ant weighting by beams'%(feig,))
 
             fig.tight_layout(rect=[0,0.03,1,0.95])
             fig.subplots_adjust(wspace=0, hspace=0)
@@ -352,7 +317,7 @@ for i in range(nRow):
         matrix_size = nChan*nAnt*nBeam*2
 
         buf = struct.pack('<%dh'%matrix_size, *matrix.flatten())
-        ofile = '%s.%s.bfm'%(files[0], tp)
+        ofile = '%s.%s.bfm'%(feig, tp)
         print('writing to:', ofile)
         fh = open(ofile, 'wb')
         fh.write(buf)

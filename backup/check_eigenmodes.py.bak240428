@@ -25,7 +25,6 @@ bytePack = 8256
 hdver   = 2
 no_bitmap = False
 meta    = 64
-nPool   = 4
 
 #idir = 'data_monitor'
 fout = 'win_eigenmodes.h5'
@@ -52,16 +51,13 @@ syntax:
                     # (default: 0, autoblock=True)
     --meta META     # specify the length of meta data in bytes
                     # (0 for older data, 64 for newer data)
-                    # (default: %d)
-    --pool nPool    # number of threads to calculate covariance matrix
-                    # (default: %d)
     --no-bitmap     # ignore the bitmap in the file
     -o out_h5       # output .h5 filename
                     # (default: %s)
 
 Note: to plot the results, use 'plot_eigenmode.py'
 
-''' % (pg, nPack, p0, blocklen, hdver, meta, nPool, fout)
+''' % (pg, nPack, p0, blocklen, hdver, fout)
 
 if (len(inp)<1):
     sys.exit(usage)
@@ -80,8 +76,6 @@ while(inp):
         nBlock = int(inp.pop(0))
     elif (k == '--meta'):
         meta = int(inp.pop(0))
-    elif (k == '--pool'):
-        nPool = int(inp.pop(0))
     elif (k == '--no-bitmap'):
         no_bitmap = True
     elif (k == '-o'):
@@ -176,11 +170,11 @@ for i in range(nFile):
     print('... data loaded. elapsed:', t1-t0)
 
     #Cov2, norm2 = makeCov(spec, scale=True, coeff=False)
-    Cov2, norm2 = makeCov(spec, scale=True, bandpass=True, coeff=False, nPool=nPool)
+    Cov2, norm2 = makeCov(spec, scale=True, bandpass=True, coeff=False)
     W2, V2 = Cov2Eig(Cov2)
     savW2.append(W2)
     savV2.append(V2)
-    Cov3, norm3 = makeCov(spec, scale=False, coeff=True, nPool=nPool)
+    Cov3, norm3 = makeCov(spec, scale=False, coeff=True)
     W3, V3 = Cov2Eig(Cov3)
     savW3.append(W3)
     savV3.append(V3)

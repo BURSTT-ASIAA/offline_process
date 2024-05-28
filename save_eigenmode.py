@@ -32,6 +32,8 @@ no_bitmap = False
 hdlen   = 64
 paylen  = 8192
 combine = False
+redo    = False
+nPool   = 4
 
 ant_flag = []
 nFlag   = 0
@@ -67,13 +69,18 @@ options are:
                 # file: 64 bytes
                 # (default: %d)
     --combine   # combine the bin files to for a larger covariance matrix
+    --redo      # re-generate eigenmodes
+                # (default is to plot existing eigenmodes)
+    --pool nPool
+                # number of threads used to parallel process makeCov
+                # (default: %d)
 
     (special)
     --no-bitmap # ignore the bitmap
     --4bit      # read 4-bit data
     --ooff OFF  # offset added to the packet_order
 
-''' % (pg, nPack, p0, blocklen, nBlock, fout, hdver, meta)
+''' % (pg, nPack, p0, blocklen, nBlock, fout, hdver, meta, nPool)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -109,6 +116,10 @@ while (inp):
         order_off = int(inp.pop(0))
     elif (k == '--combine'):
         combine = True
+    elif (k == '--redo'):
+        redo = True
+    elif (k == '--pool'):
+        nPool = int(inp.pop(0))
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -129,6 +140,7 @@ else:
     nLoop = len(files0)
     loop_files = [[x] for x in files0]
 
+t00 = time.time()
 
 for ll in range(nLoop):
     files = loop_files[ll]
@@ -139,144 +151,168 @@ for ll in range(nLoop):
             fout = files[0] + '.eigen.h5'
     print('eigenmode is saved in:', fout, '...')
 
-    attrs = {}
-    attrs['bitwidth'] = bitwidth
-    attrs['nPack'] = nPack
-    attrs['p0'] = p0
-    attrs['filename'] = files
-    attrs['nAnt'] = nAnt
-    attrs['nChan'] = nChan
+    if (os.path.isfile(fout) and not redo):
+        attrs = getAttrs(fout)
+        savN2 = getData(fout, 'N2_scale')
+        savW2 = getData(fout, 'W2_scale')
+        savV2 = getData(fout, 'V2_scale')
+        savW3 = getData(fout, 'W3_coeff')
+        savV3 = getData(fout, 'V3_coeff')
+        tsec  = getData(fout, 'winSec')
 
-    ftime0 = None
-    tsec = []
-    savW2 = []  # 2 for scaled
-    savV2 = []
-    savN2 = []  # normalization used to scale the data
-    savN2mask = []  # normalization used to scale the data
-    savW3 = []  # 3 for coeff
-    savV3 = []
+    else:   # redo or file not exist
+        attrs = {}
+        attrs['bitwidth'] = bitwidth
+        attrs['nPack'] = nPack
+        attrs['p0'] = p0
+        attrs['filename'] = files
+        attrs['nAnt'] = nAnt
+        attrs['nChan'] = nChan
 
-    if (bitwidth==4):
-        nFrame = nPack // 2
-    elif (bitwidth==16):
-        nFrame = nPack // 8
-    # note, the shape is after transpose
-    spec = np.ma.array(np.zeros((nFile,nAnt,nFrame,nChan), dtype=complex), mask=True)
+        ftime0 = None
+        tsec = []
+        savW2 = []  # 2 for scaled
+        savV2 = []
+        savN2 = []  # normalization used to scale the data
+        savN2mask = []  # normalization used to scale the data
+        savW3 = []  # 3 for coeff
+        savV3 = []
 
-    t0 = time.time()
+        if (bitwidth==4):
+            nFrame = nPack // 2
+        elif (bitwidth==16):
+            nFrame = nPack // 8
+        # note, the shape is after transpose
+        spec = np.ma.array(np.zeros((nFile,nAnt,nFrame,nChan), dtype=complex), mask=True)
 
-    ii = -1
-    for i in range(nFile):
-        print(i, files[i])
-        ii += 1
+        t0 = time.time()
 
-        fbin = files[i]
+        ii = -1
+        for i in range(nFile):
+            print(i, files[i])
+            ii += 1
 
-        fbase = os.path.basename(fbin)   # use 1st dir as reference
-        tmp = fbase.split('.')
-        ftpart = tmp[1]
-        if (len(ftpart)==10):
-            ftstr = '23'+ftpart # hard-coded to 2023!!
-        elif (len(ftpart)==14):
-            ftstr = ftpart[2:]  # strip leading 20
-        ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
-        if (ftime0 is None):
-            ftime0 = ftime
-            unix0 = Time(ftime0, format='datetime').to_value('unix')    # local time
-            unix0 -= 3600.*8.                                           # convert to UTC
-            attrs['unix_utc_open'] = unix0
+            fbin = files[i]
 
-        dt = (ftime - ftime0).total_seconds()
-        print('(%d/%d)'%(ii+1,nFile), fbin, 'dt=%dsec'%dt)
-        tsec.append(dt)
+            fbase = os.path.basename(fbin)   # use 1st dir as reference
+            tmp = fbase.split('.')
+            ftpart = tmp[1]
+            if (len(ftpart)==10):
+                ftstr = '23'+ftpart # hard-coded to 2023!!
+            elif (len(ftpart)==14):
+                ftstr = ftpart[2:]  # strip leading 20
+            ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
+            if (ftime0 is None):
+                ftime0 = ftime
+                unix0 = Time(ftime0, format='datetime').to_value('unix')    # local time
+                unix0 -= 3600.*8.                                           # convert to UTC
+                attrs['unix_utc_open'] = unix0
 
-        if (autoblock):
-            fsize = os.path.getsize(fbin)
-            nBlock = np.rint((fsize-meta)/byteBlock).astype(int)
-            print('auto block, nB:', nBlock)
-            autoblock=False
+            dt = (ftime - ftime0).total_seconds()
+            print('(%d/%d)'%(ii+1,nFile), fbin, 'dt=%dsec'%dt)
+            tsec.append(dt)
 
-        fh = open(fbin, 'rb')
-        BM = loadFullbitmap(fh, nBlock, blocklen=blocklen, meta=meta)
-        bitmap = BM[p0:p0+nPack]
-        if (no_bitmap):
-            bitmap = np.ones(nPack, dtype=bool)
-        # spec0.shape = (nFrame, nAnt, nChan)
-        tick, spec0 = loadSpec(fh, p0, nPack, bitmap=bitmap, bitwidth=bitwidth, hdver=hdver, order_off=order_off, verbose=1, meta=meta)
-        #tick, spec0 = loadSpec(fh, p0, nPack, bitmap=bitmap, bitwidth=bitwidth, verbose=1)
-        #tick, spec0 = loadSpec(fh, p0, nPack, nBlock=nBlock, bitwidth=bitwidth, verbose=1)
-        fh.close()
+            if (autoblock):
+                fsize = os.path.getsize(fbin)
+                nBlock = np.rint((fsize-meta)/byteBlock).astype(int)
+                print('auto block, nB:', nBlock)
+                autoblock=False
 
-        # trasposed shape = (nAnt, nFrame, nChan)
-        spec[i] = spec0.transpose((1,0,2))
-        del tick, spec0
-        gc.collect()
-        t1 = time.time()
-        print('... data', i, 'loaded. elapsed:', t1-t0)
+            fh = open(fbin, 'rb')
+            BM = loadFullbitmap(fh, nBlock, blocklen=blocklen, meta=meta)
+            bitmap = BM[p0:p0+nPack]
+            if (no_bitmap):
+                bitmap = np.ones(nPack, dtype=bool)
+            # spec0.shape = (nFrame, nAnt, nChan)
+            tick, spec0 = loadSpec(fh, p0, nPack, bitmap=bitmap, bitwidth=bitwidth, hdver=hdver, order_off=order_off, verbose=1, meta=meta)
+            #tick, spec0 = loadSpec(fh, p0, nPack, bitmap=bitmap, bitwidth=bitwidth, verbose=1)
+            #tick, spec0 = loadSpec(fh, p0, nPack, nBlock=nBlock, bitwidth=bitwidth, verbose=1)
+            fh.close()
 
-    spec = spec.reshape((-1,nFrame,nChan))
-    ## new shape (nFile*nAnt, nFrame, nChan), only 3 axes
+            # trasposed shape = (nAnt, nFrame, nChan)
+            spec[i] = spec0.transpose((1,0,2))
+            del tick, spec0
+            gc.collect()
+            t1 = time.time()
+            print('... data', i, 'loaded. elapsed:', t1-t0)
 
-    Cov2, norm2 = makeCov(spec, scale=True, coeff=False, bandpass=True, ant_flag=ant_flag)
-    #Cov2, norm2 = makeCov(spec, scale=True, coeff=False, bandpass=False, ant_flag=ant_flag)
-    W2, V2 = Cov2Eig(Cov2)
-    savW2.append(W2)
-    savV2.append(V2)
-    savN2.append(norm2)
-    savN2mask.append(norm2.mask)
-    Cov3, norm3 = makeCov(spec, scale=False, coeff=True, ant_flag=ant_flag)
-    W3, V3 = Cov2Eig(Cov3)
-    savW3.append(W3)
-    savV3.append(V3)
+        spec = spec.reshape((-1,nFrame,nChan))
+        ## new shape (nFile*nAnt, nFrame, nChan), only 3 axes
 
-    #Vlast[ii] = V[:,:,nAnt-1]
-    t2 = time.time()
-    print('... eigenmode got. elapsed:', t2-t0)
+        Cov2, norm2 = makeCov(spec, scale=True, coeff=False, bandpass=True, ant_flag=ant_flag, nPool=nPool)
+        #Cov2, norm2 = makeCov(spec, scale=True, coeff=False, bandpass=False, ant_flag=ant_flag)
+        W2, V2 = Cov2Eig(Cov2)
+        savW2.append(W2)
+        savV2.append(V2)
+        savN2.append(norm2)
+        savN2mask.append(norm2.mask)
+        Cov3, norm3 = makeCov(spec, scale=False, coeff=True, ant_flag=ant_flag, nPool=nPool)
+        W3, V3 = Cov2Eig(Cov3)
+        savW3.append(W3)
+        savV3.append(V3)
 
-    print('files loaded')
-    savW2 = np.array(savW2)
-    savV2 = np.array(savV2)
-    savN2 = np.ma.array(savN2, mask=savN2mask)
-    savW3 = np.array(savW3)
-    savV3 = np.array(savV3)
-    tsec  = np.array(tsec)
+        #Vlast[ii] = V[:,:,nAnt-1]
+        t2 = time.time()
+        print('... eigenmode got. elapsed:', t2-t0)
 
-
-
-    adoneh5(fout, savW2.mean(axis=0), 'W2_scale')
-    adoneh5(fout, savV2.mean(axis=0), 'V2_scale')
-    adoneh5(fout, savN2.mean(axis=0), 'N2_scale')
-    adoneh5(fout, savW3.mean(axis=0), 'W3_coeff')
-    adoneh5(fout, savV3.mean(axis=0), 'V3_coeff')
-
-    adoneh5(fout, tsec, 'winSec')
-    putAttrs(fout, attrs)
+        print('files loaded')
+        savW2 = np.array(savW2).mean(axis=0)
+        savV2 = np.array(savV2).mean(axis=0)
+        savN2 = np.ma.array(savN2, mask=savN2mask).mean(axis=0)
+        savW3 = np.array(savW3).mean(axis=0)
+        savV3 = np.array(savV3).mean(axis=0)
+        tsec  = np.array(tsec)
 
 
+
+        adoneh5(fout, savN2, 'N2_scale')    # shape (nAnt, nChan)
+        adoneh5(fout, savW2, 'W2_scale')    # shape (nChan, nMode)
+        adoneh5(fout, savV2, 'V2_scale')    # shape (nChan, nAnt, nMode)
+        adoneh5(fout, savW3, 'W3_coeff')
+        adoneh5(fout, savV3, 'V3_coeff')
+
+        adoneh5(fout, tsec, 'winSec')
+        putAttrs(fout, attrs)
+
+
+
+    (nChan3, nAnt3, nMode3) = savV3.shape
+    nCol = nAnt3//nAnt
 
     ## plot normalization and eigenvalues
-    fig, sub = plt.subplots(2,1,figsize=(12,9),sharex=True)
+    fig, sub = plt.subplots(3,1,figsize=(15,15),sharex=True)
 
     # normalization
     ax = sub[0]
-    for ai in range(nAnt*nFile):
-        ax.plot(freq, savN2[:,ai].mean(axis=0), label='Ant%d'%ai)
+    for ai in range(nAnt3):
+        ax.plot(freq, savN2[ai], label='Ant%d'%ai)
     ax.set_yscale('log')
     ax.set_ylabel('voltage normalization')
-    ax.legend(ncols=nFile)
+    ax.legend(ncols=nCol)
 
     # eigenvalues
     ax = sub[1]
-    for ai in range(nAnt*nFile):  # nMode = nAnt
+    for ai in range(nMode3):  # nMode = nAnt
         if (ai < nFlag):    # skip first n (weakest) modes correspondsng to the flagged antennas
             continue
-        y = savW2[:,:,ai].mean(axis=0)
+        y = savW3[:,ai]
         y2 = sigma_clip(10.*np.log10(y), sigma=10)
         #ax.plot(freq, 10.*np.log10(y), label='Mode%d'%ai)
         ax.plot(freq, y2, label='Mode%d'%ai)
     ax.set_ylabel('power (dB)')
+    ax.legend(ncols=nCol)
+
+    # eigenvector of leading mode, phase
+    ax = sub[2]
+    for ai in range(nAnt3):
+        if (ai < nFlag):
+            continue
+        y = savV3[:,ai,-1]
+        ax.plot(freq, np.ma.angle(y), label='Ant%d'%ai)
+    ax.set_ylabel('phase (rad)')
+    ax.legend(ncols=nCol)
     ax.set_xlabel('freq (MHz)')
-    ax.legend(ncols=nFile)
+    ax.set_xlim(flim[0], flim[1]*1.25)
 
     fig.tight_layout(rect=[0,0.03,1,0.95])
     fig.suptitle(fout)
@@ -285,4 +321,4 @@ for ll in range(nLoop):
 
 
     t3 = time.time()
-    print('... all done. elapsed:', t3-t0)
+    print('... all done. elapsed:', t3-t00)

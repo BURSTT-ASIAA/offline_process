@@ -28,31 +28,22 @@ ifiles = glob('%s/*.bin'%idir)
 nTot = len(ifiles)
 
 dates = []
-names = []
 for i in range(nTot):
     f = ifiles[i]
     tmp = f.split('.')
-    if (len(tmp[1])==10):
-        tmp2 = '.'.join([tmp[0], '2023'+tmp[1][:4]])
-        tmp3 = '.'.join([tmp[0], tmp[1][:4]])
-    elif (len(tmp[1])==14):
-        tmp2 = '.'.join([tmp[0], tmp[1][:8]])
-        tmp3 = '.'.join([tmp[0], tmp[1][:8]])
+    tmp2 = '.'.join([tmp[0], tmp[1][:4]])
     #print(i, f, tmp2)
     #sys.exit()
 
     dates.append(tmp2)
-    names.append(tmp3)
 
 uniq = np.unique(dates)
 #print(uniq)
 nUni = len(uniq)
-uniq2 = np.unique(names)
 
 for j in range(nUni):
     d = uniq[j]
-    nm = uniq2[j]
-    jfiles = glob('%s*.bin'%nm)
+    jfiles = glob('%s*.bin'%d)
     size = 0
     for f in jfiles:
         size += os.path.getsize(f)

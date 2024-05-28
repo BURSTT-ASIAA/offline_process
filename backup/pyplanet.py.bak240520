@@ -16,11 +16,11 @@ h   = 6.62606957e-34    # Planck constant SI
 k_B = 1.3806488e-23     # Boltzmann constant SI
 
 import astropy.units as u
-from astropy.time import Time, TimeDelta
+from astropy.time import Time
 from astropy.coordinates import SkyCoord, EarthLocation, Galactic
 from astropy.utils import iers
 # the default IERS url is not working: http://maia.usno.navy.mil/ser7/finals2000A.all
-#iers.conf.iers_auto_url = 'ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals2000A.all'
+iers.conf.iers_auto_url = 'ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals2000A.all'
 
 def LSRvel(ra, dec, obstime, loc='taroge4'):
     '''
@@ -123,7 +123,7 @@ def obsBody(body, site='taroge4', time=datetime.utcnow(), epoch='2000', DB={}, r
             return b
 
 
-def obsSite(site='fushan6'):
+def obsSite(site='taroge4'):
         ## define observer
         # Mauna Loa Observatory site information taken from AMiBA Wiki
         obs = Observer()
@@ -177,8 +177,6 @@ def obsSite(site='fushan6'):
             obs.long         = '99.216560'
             obs.lat         = '+18.863546'
             obs.elevation   = 390.0
-        else:
-            obs = None
 
         #obs.date       = time      # this is variable now
         # can omit epoch if using J2000 (is the default)
@@ -218,86 +216,9 @@ def solbody(body):
             name = 'sun'
         else:
             print('unknown PLANET =', body)
-            name = None
+            sys.exit()
 
         return name
-
-
-def coordSite(site, lon=None, lat=None, height=None):
-    tmp = obsSite(site)
-    if (not tmp is None):
-        #print(tmp, tmp.long, tmp.lat)
-        lon = tmp.long*u.radian
-        lat = tmp.lat*u.radian
-        height = tmp.elevation*u.m
-        #print(lon, lat, height)
-
-    if (site.lower() == 'fushan6'):
-        lon = '121:34:53.90421'
-        lat = '24:45:23.39848'
-        height = 640.162*u.m
-    #elif (site.lower() == 'longtien'):
-    #    lon = 120.82450942*u.deg
-    #    lat = 23.71464178*u.deg
-    #    height = 879.814*u.m 
-    elif (site.lower() == 'aro'):
-        lon = -78.072776*u.deg
-        lat = 45.955555*u.deg
-        height = 260.4*u.m
-
-    if (lon is None or lat is None):    # site must be defined in astropy
-        coord = EarthLocation.of_site(site)
-    else:   # use geodetic location
-        if (height is None):
-            height = 0.*u.m
-        coord = EarthLocation.from_geodetic(lon=lon, lat=lat, height=height, ellipsoid='WGS84')
-    
-    return coord    # ECEF coordinates in meters
-
-
-def vecBaseline(site1, site2):
-    '''
-    compute the baseline vector from site1 (reference) toward site2
-    in ECEF coordinates in meters
-    '''
-    v1 = site1.value
-    v2 = site2.value
-    BL = np.zeros(3)
-    for i in range(3):
-        BL[i] = v2[i] - v1[i]
-    return BL
-
-
-def tauBaseline(RA_rad, DEC_rad, BLvec, t_arr, t0=None):
-    '''
-    input:
-        RA_rad:: target RA in radian
-        DEC_rad:: target DEC in radian
-        BLvec:: should be a baseline vector in the ECEF system in meters, originated from a reference site
-        t_arr:: if t0 is None, t_arr should a Time object array
-                if t0 is a Time object, then t_arr is expected to be time offset in seconds
-
-    output:
-        tau:: delay in meters
-    '''
-    if (not t0 is None):
-        t_arr = t0 + TimeDelta(t_arr, format='sec')
-    nTime = len(t_arr)
-
-    ST = t_arr.sidereal_time('apparent', 'greenwich')
-    dRA_rad = RA_rad - ST.radian
-    #print('debug:', RA_rad, DEC_rad, dRA_rad)
-
-    unit_vec = np.zeros(3)
-    tauGeo = np.zeros(nTime)
-    for i in range(nTime):
-        r = np.cos(DEC_rad)
-        unit_vec[0] = r*np.cos(dRA_rad[i])
-        unit_vec[1] = r*np.sin(dRA_rad[i])
-        unit_vec[2] = np.sin(DEC_rad)
-        tauGeo[i] = np.dot(unit_vec, BLvec)
-
-    return tauGeo
 
 
 if (__name__ == '__main__'):
