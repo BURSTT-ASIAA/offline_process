@@ -8,8 +8,6 @@ import time
 
 from packet_func import *
 from loadh5 import *
-from pyplanet import *
-from delay_func2 import *
 
 t0 = time.time()
 
@@ -19,11 +17,7 @@ flim  = [400., 800.]
 lamb0 = 2.998e8/400e6   # longest wavelength
 #sep   = 1.    # meters
 #aconf = 'FUSHAN6_230418.config'
-#aconf = '1m'    # the default 1m spacing 1D array
-aconf   = '16x1.0y0.5'
-rows    = None
-sep     = 1.    # separation in meters, in X-axis
-theta_rot = 0.
+aconf = '1m'    # the default 1m spacing 1D array
 ant_flag = [[],[],[],[]]
 ## antenna selection for visibility
 asel = [0, 2, 9, 15] # bl: 2, 6, 7, 9, 13, 15
@@ -32,13 +26,11 @@ beam0 = -16     # offset toward East
 #beam0 = -7.5   # symmetric about zenith
 #feig = 'fpga0.1214114800.bin.eigen.h5'
 use_coeff = False
-idir = None
 ## for 64-ant, row0--row3
 nRow = 4
 minRow = 0
-dirname = '64ant_ver%s' % time.strftime('%y%m%d_%H%M')
-medBEQ  = 64.
-verbose = 0
+dirname = '64ant_%s' % time.strftime('%y%m%d_%Hh')
+medBEQ  = 32.
 
 
 inp = sys.argv[0:]
@@ -46,17 +38,12 @@ pg  = inp.pop(0)
 
 usage = '''
 derive beamform parameters from preprocssed eigenmodes
-when multiple .eigen.h5 files are given,
-the 1st is used to provide normalization (BEQ) and phase solution
-and the others are used for incremental phase adjustments
-if --bfm is used, get the base matrix from the BFM_DIR instead
+multiple files can be given, each will be processed independently
 
 syntax:
     %s <eigen.h5_file(s)> [options]
 
     options are:
-    --bfm BFM_DIR       # load the base BFM for incremental adjustment
-                        # (default is to start from scratch)
     --coeff             # use the coeff normalized eigenmodes
                         # default: bandpass normalized eigenmodes
     --flag Row '...'    # first specify the row number (0--3)
@@ -64,10 +51,6 @@ syntax:
                         # quote multiple numbers with blank separation
     --aconf ACONF       # specify an antenna configuration file
                         # default: 1m spacing E-W array
-    --sep SEP           # separation in meters along the row
-                        # default: %.1f m
-    --rows 'rows'       # specify the row numbers used, numbers separated by spaces
-                        # default: the first nRows=4 rows
     --beam0 B0          # specify the offset of the beams
                         # 0 puts the East-most beam at zenith
                         # -7.5 puts equal number of beams to the West and East
@@ -79,7 +62,7 @@ syntax:
     --beq <med_BEQ>     # set target median value of the BFM parameters
                         # range: (0, 127), default: %.0f
 
-''' % (pg, sep, beam0, ', '.join(map(str,asel)), medBEQ)
+''' % (pg, beam0, ', '.join(map(str,asel)), medBEQ)
 
 if (len(inp)<1):
     sys.exit(usage)
@@ -91,21 +74,12 @@ while (inp):
         row = int(inp.pop(0))
         tmp = inp.pop(0)
         ant_flag[row] = [int(x) for x in tmp.split()]
-    elif (k == '--bfm'):
-        idir = inp.pop(0)
     elif (k == '--coeff'):
         use_coeff = True
     elif (k == '--beam0'):
         beam0 = int(inp.pop(0))
     elif (k == '--aconf'):
         aconf = inp.pop(0)
-    elif (k == '--sep'):
-        sep = float(inp.pop(0))
-    elif (k == '--rows'):
-        tmp = inp.pop(0)
-        rows = [int(x) for x in tmp.split()]
-    elif (k == '--rot'):
-        theta_rot = float(inp.pop(0))
     elif (k == '--beq'):
         medBEQ = float(inp.pop(0))
     elif (k == '--vis_sel'):
@@ -126,46 +100,21 @@ CC, YY = np.meshgrid(ch, y)
 
 BEQ4k = medBEQ*32   # medBEQ range (0, 127); BEQ4k range (0, 4096)
 
-N2_64 = None
-V2_64 = None
-if (not idir is None):
-    # load the IDT BFM <-- 1/N2
-    # or N2 = 1/BFM_IDT
-    N2_64 = np.ma.array(np.zeros((nAnt*nRow, nChan)), mask=False)
-    V2_64 = np.zeros((nChan, nAnt*nRow), dtype=complex)
-    tp = 'idt'
-    for i in range(nRow):
-        fpga = 'fpga%d'%(i+minRow)
-        ifile = '%s/%s.%s.npy'%(idir, fpga, tp)
-        print('read:', ifile)
-        BFM = np.load(ifile)
-        #BFM = np.zeros((nBeam, nAnt, nChan, 2), dtype=np.short)
-        #BFM[:,:,:,0] = BEQ.reshape((1, nAnt, -1)) * yy.real
-        #BFM[:,:,:,1] = BEQ.reshape((1, nAnt, -1)) * yy.imag
-        CBFM = BFM[:,:,:,0] + 1.j*BFM[:,:,:,1]
-        a0 = i*nAnt
-        for ai in range(nAnt):
-            beq = np.abs(CBFM[ai,ai,:])
-            N2_64[a0+ai,:] = 1./beq
-            V2_64[:,a0+ai] = CBFM[ai,ai,:]/beq
-
-if (rows is None):
-    rows = np.arange(nRow)
-
-
 # loading antenna positions
-pos_64 = arrayConf(aconf, nRow, rows=rows, theta_rot=theta_rot)
-#pos2 = pos.reshape((nRow,-1,3))
-#sep = np.median(pos2[:,1:,0]-post[:,:-1,0])
-print('sep (m):', sep)
-if (verbose):
-    print('pos (m):', pos_64)
+if (aconf == '1m'):
+    sep = 1
+    pos = np.arange(nAnt)
+else:
+    if (not os.path.isfile(aconf)):
+        sys.exit('error finding the antenna config file:', aconf)
+    pos = np.loadtxt(aconf, usecols=(1,))
+    sep = np.median(pos[1:]-pos[:-1])
+print('sep (m):', sep, 'pos (m):', pos)
 
 # define wavelengths
 fMHz = np.linspace(flim[0], flim[1], nChan, endpoint=False)  # in MHz
 lamb = 2.998e8 / (fMHz * 1e6)  # in meters
 #print('wavelengths in m:', lamb)
-freq2 = fMHz*1e6
 
 sin_theta_m = lamb0/sep/nAnt*(np.arange(nAnt)+beam0)    # offset toward East (HA<0)
 theta_deg = np.arcsin(sin_theta_m)/np.pi*180.
@@ -176,6 +125,7 @@ print('angles (deg):', theta_deg)
 nBeam = len(theta_deg)
 # raw beamform; 1st line below for swapped Re/Im; 2nd line below for older format
 #BFM0 = np.exp(-2.j*np.pi*pos.reshape((1,nAnt,1))/lamb.reshape((1,1,nChan))*sin_theta_m.reshape((nBeam,1,1)))
+BFM0 = np.exp(+2.j*np.pi*pos.reshape((1,nAnt,1))/lamb.reshape((1,1,nChan))*sin_theta_m.reshape((nBeam,1,1)))
 # delay correction term
 #TauCorr = np.exp(-2.j*np.pi*antTau.reshape((1,nAnt,1))*fMHz.reshape((1,1,nChan))*1e-3)
 
@@ -192,6 +142,8 @@ else:
     tgtVec = 'V2_scale'
     oname = 'scale'
 
+N2_64 = None
+V2_64 = None
 for i in range(len(files)):
     feig = files[i]
     print('loading N2 and V2 from:', feig)
@@ -202,7 +154,7 @@ for i in range(len(files)):
     # bandpass normalization for the scaled mode
     # coeff mode use the same normalization
     # use N3 if it exists
-    tmp  = getData(feig, 'N3_coeff') # shape: (nAnt, nChan)
+    tmp  = getData(feig, 'N3_scale') # shape: (nAnt, nChan)
     if (tmp is None):   # fallback to N2 if not
         tmp  = getData(feig, 'N2_scale') # shape: (nAnt, nChan)
     if (N2_64 is None):
@@ -212,19 +164,10 @@ for i in range(len(files)):
 
     # eigenvectors from the scaled mode
     tmp  = getData(feig, tgtVec) # shape: (nChan, nAnt, nMode)
-    # take the leading eigenmode corresponding to the calibrator (at transit time)
-    tmp = tmp[:,:,-1]           # shape: (nChan, nAnt)
     if (V2_64 is None):
         V2_64 = tmp
     else:
         V2_64 *= tmp
-
-    # correct for geometric delay if available
-    tauGeo = getData(feig, 'tauGeo')
-    if (not tauGeo is None):
-        c_arr = phiCorr(tauGeo, freq2).conjugate()
-        V2_64 *= c_arr.T.reshape((nChan, nRow*nAnt))
-
 
 N2_64.mask[N2_64==0] = True
 # masking flagged antennas
@@ -250,24 +193,11 @@ for i in range(nRow):
 
     print('cws =', cwd, file=FO)
     print('odir =', odir, file=FO)
-    print('input_bfm =', idir, file=FO)
-    for feig in files:
-        print('eigen_file =', feig, file=FO)
-    print('array_conf =', aconf, file=FO)
-    print('sep =', sep, file=FO)
     print('beam0 =', beam0, file=FO)
-    print('beam_angle =', theta_deg, file=FO)
     print('ant_flag =', ant_flag[i], file=FO)
     print('ant_sel =', asel, file=FO)
 
     a0 = i*nAnt
-
-    pos3 = pos_64[a0:a0+nAnt]   # vector
-    pos3 -= pos3[0]             # relative
-    pos = np.sqrt(pos3[:,0]**2+pos3[:,1]**2)
-    #print(pos3.shape, pos.shape)
-    BFM0 = np.exp(+2.j*np.pi*pos.reshape((1,nAnt,1))/lamb.reshape((1,1,nChan))*sin_theta_m.reshape((nBeam,1,1)))
-
     V2 = V2_64[:,a0:a0+nAnt]
     N2 = N2_64[a0:a0+nAnt]
     BEQ = BEQ_64[a0:a0+nAnt]
@@ -277,9 +207,10 @@ for i in range(nRow):
     renorm = float(nAnt/(nAnt-len(ant_flag[i])))
     print('renorm =', renorm, file=FO)
 
-    refV2  = V2[:,:]         # averaged window, last mode
+    # take the leading eigenmode corresponding to the calibrator (at transit time)
+    refV2  = V2[:,:,-1]         # averaged window, last mode
     refV2 /= np.abs(refV2)      # keep only the phase info
-    #print('refV2.shape:', refV2.shape)
+    print('refV2.shape:', refV2.shape)
 
 
     ## new phase correction term
@@ -335,8 +266,8 @@ for i in range(nRow):
 
     ## set max value
     BEQ[BEQ.mask] = 0.
-    #print('debug: BEQ min/max', BEQ.min(), BEQ.max())
-    #print('debug: norm BEQ min/max', BEQ.min()/4096*127, BEQ.max()/4096*127)
+    print('debug: BEQ min/max', BEQ.min(), BEQ.max())
+    print('debug: norm BEQ min/max', BEQ.min()/4096*127, BEQ.max()/4096*127)
     print('debug: norm BEQ median', np.median(BEQ)/4096*127)
     print('BEQ min,max =', BEQ.min(), BEQ.max(), file=FO)
     print('norm BEQ min,max,med =', BEQ.min()/4096*127, BEQ.max()/4096*127, np.ma.median(BEQ)/4096*127, file=FO)

@@ -37,56 +37,10 @@ def lnlike(params, y, yerr, nChan=1024, oChan=0):
     return like
 
 def phimodel(d, nChan=1024, oChan=0):
-    '''
-    given a single delay (d) in clock cycles, return the phase as a function of channels
-    central channel can be specified with oChan
-    output shape: (nChan,)
-    '''
     #y = np.linspace(-np.pi*d, np.pi*d, nChan, endpoint=False)
     s = np.pi*2./nChan*d
     y = s*(np.arange(nChan)-nChan/2+oChan)
     return y
-
-def phimodel2(d, freq):
-    '''
-    given a 1D array of delays (d) and an array of frequencies 
-    return the phase as a function of frequency
-    output shape: (nDelay, nChan)
-
-    note:
-        if the unit of d is in clocks, then freq should be normalized channels
-            with the appropriate start and end channels
-            e.g. freq = np.arange(1024, 2048)/1024   for 400-800MHz
-        if the unit of d is in seconds, then freq should be in Hz
-            e.g. freq = np.linspace(400e6, 800e6, endpoint=False)
-    '''
-    if (not isinstance(d, np.ndarray)):
-        d = np.array(d)
-    if (not isinstance(freq, np.ndarray)):
-        freq = np.array(freq)
-    #s = (np.pi*2./nChan*d).reshape((-1,1))
-    #y = (np.arange(nChan)-nChan/2+oChan).reshape((1,nChan))
-    s = d.reshape((-1,1))
-    y = (2.*np.pi*s)*freq.reshape((1,-1))
-    return y
-
-def phiCorr(d, freq):
-    '''
-    given a 1D array of delays (d), and an array of frequencies
-    return an array of complex coefficients for phase correction
-    shape: (nDelay, nChan)
-
-    note:
-        if the unit of d is in clocks, then freq should be in channels
-            with the appropriate start and end channels
-            e.g. freq = np.arange(1024, 2048)/1024   for 400-800MHz
-        if the unit of d is in seconds, then freq should be in Hz
-            e.g. freq = np.linspace(400e6, 800e6, endpoint=False)
-    '''
-    phi = phimodel2(d, freq)
-    c_arr = np.exp(1.j*phi)
-    return c_arr
-
 
 def lnprob(params, ranages, freq, y, yerr, nChan=1024):
     return lnflat(params, ranges) + lnlike(params, freq, y, yerr, nChan)

@@ -10,10 +10,6 @@ from astropy.stats import sigma_clip
 from packet_func import *
 from calibrate_func import *
 from loadh5 import *
-from pyplanet import *
-from delay_func2 import *
-
-DB = loadDB()
 
 inp = sys.argv[0:]
 pg  = inp.pop(0)
@@ -38,14 +34,6 @@ paylen  = 8192
 combine = False
 redo    = False
 nPool   = 4
-do_model = True
-body    = 'sun'
-site    = 'fushan6'
-arr_config = '16x1.0y0.5'
-rows    = None
-aref    = None
-theta_rot = None
-
 
 ant_flag = []
 nFlag   = 0
@@ -81,24 +69,6 @@ options are:
                 # file: 64 bytes
                 # (default: %d)
     --combine   # combine the bin files to for a larger covariance matrix
-    --array <CONFIG>
-                # specify the array config (predefined or a config filename)
-                # (default: %s)
-    --rows 'rows'
-                # specify the rows of the files in the --combine mode
-                # quote the numbers, separate with spaces
-                # default to the first nFile rows
-    --aref aref # choose a reference antenna for geometric delay calc
-                # default to the array origin
-    --body <BODY>   # set the target to calculate geometric delay
-                    # (default: %s)
-    --site <SITE>   # specify the site (pre-defined sites)
-                    # (default: %s)
-    --rot theta_rot # the array misalignment angle in deg
-                    # default to 0.0 if a config file is provided
-                    # or the predefined value of the site
-                    # 0.0 if it is not defined yet
-
     --redo      # re-generate eigenmodes
                 # (default is to plot existing eigenmodes)
     --pool nPool
@@ -110,7 +80,7 @@ options are:
     --4bit      # read 4-bit data
     --ooff OFF  # offset added to the packet_order
 
-''' % (pg, nPack, p0, blocklen, nBlock, fout, hdver, meta, arr_config, body, site, nPool)
+''' % (pg, nPack, p0, blocklen, nBlock, fout, hdver, meta, nPool)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -146,17 +116,6 @@ while (inp):
         order_off = int(inp.pop(0))
     elif (k == '--combine'):
         combine = True
-    elif (k == '--rows'):
-        tmp = inp.pop(0)
-        rows = [int(x) for x in tmp.split()]
-    elif (k == '-aref'):
-        aref = int(inp.pop(0))
-    elif (k == '--body'):
-        body = inp.pop(0)
-    elif (k == '--site'):
-        site == inp.pop(0)
-    elif (k == '--rot'):
-        theta_rot = float(inp.pop(0))
     elif (k == '--redo'):
         redo = True
     elif (k == '--pool'):
@@ -181,7 +140,6 @@ else:
     nLoop = len(files0)
     loop_files = [[x] for x in files0]
 
-
 t00 = time.time()
 
 for ll in range(nLoop):
@@ -193,34 +151,14 @@ for ll in range(nLoop):
             fout = files[0] + '.eigen.h5'
     print('eigenmode is saved in:', fout, '...')
 
-
-    if (site == 'fushan6'):
-        if (theta_rot is None):
-            theta_rot = -3.0
-    elif (site == 'longtien'):
-        if (arr_config == '16x1.0y0.5'):    # the default
-            arr_config = '16x1.0y2.0'
-            if (theta_rot is None):
-                theta_rot = 0.5
-    if (theta_rot is None):
-        theta_rot = 0.
-
-    pos = arrayConf(arr_config, nFile, rows=rows, theta_rot=theta_rot)
-    if (aref is None):
-        BVec = pos
-    else:
-        BVec = pos - pos[0]
-
     if (os.path.isfile(fout) and not redo):
         attrs = getAttrs(fout)
         savN2 = getData(fout, 'N2_scale')
         savW2 = getData(fout, 'W2_scale')
         savV2 = getData(fout, 'V2_scale')
-        savN3 = getData(fout, 'N3_coeff')
         savW3 = getData(fout, 'W3_coeff')
         savV3 = getData(fout, 'V3_coeff')
         tsec  = getData(fout, 'winSec')
-        #tauGeo = getData(fout, 'tauGeo')
 
     else:   # redo or file not exist
         attrs = {}
@@ -239,8 +177,6 @@ for ll in range(nLoop):
         savN2mask = []  # normalization used to scale the data
         savW3 = []  # 3 for coeff
         savV3 = []
-        savN3 = []
-        savN3mask = []
 
         if (bitwidth==4):
             nFrame = nPack // 2
@@ -302,8 +238,6 @@ for ll in range(nLoop):
 
         spec = spec.reshape((-1,nFrame,nChan))
         ## new shape (nFile*nAnt, nFrame, nChan), only 3 axes
-        tsec = np.array(tsec).reshape((nFile, -1)).mean(axis=0)
-        
 
         Cov2, norm2 = makeCov(spec, scale=True, coeff=False, bandpass=True, ant_flag=ant_flag, nPool=nPool)
         #Cov2, norm2 = makeCov(spec, scale=True, coeff=False, bandpass=False, ant_flag=ant_flag)
@@ -316,8 +250,6 @@ for ll in range(nLoop):
         W3, V3 = Cov2Eig(Cov3)
         savW3.append(W3)
         savV3.append(V3)
-        savN3.append(norm3)
-        savN3mask.append(norm3.mask)
 
         #Vlast[ii] = V[:,:,nAnt-1]
         t2 = time.time()
@@ -329,7 +261,6 @@ for ll in range(nLoop):
         savN2 = np.ma.array(savN2, mask=savN2mask).mean(axis=0)
         savW3 = np.array(savW3).mean(axis=0)
         savV3 = np.array(savV3).mean(axis=0)
-        savN3 = np.ma.array(savN3, mask=savN3mask).mean(axis=0)
         tsec  = np.array(tsec)
 
 
@@ -337,43 +268,11 @@ for ll in range(nLoop):
         adoneh5(fout, savN2, 'N2_scale')    # shape (nAnt, nChan)
         adoneh5(fout, savW2, 'W2_scale')    # shape (nChan, nMode)
         adoneh5(fout, savV2, 'V2_scale')    # shape (nChan, nAnt, nMode)
-        adoneh5(fout, savN3, 'N3_coeff')    # shape (nAnt, nChan)
         adoneh5(fout, savW3, 'W3_coeff')
         adoneh5(fout, savV3, 'V3_coeff')
 
         adoneh5(fout, tsec, 'winSec')
         putAttrs(fout, attrs)
-
-
-    if (do_model):
-        ## calculate geometric delay
-        uttime = tsec + attrs['unix_utc_open']
-        dtime = Time(uttime, format='unix').to_datetime()
-        b, obs = obsBody(body, time=dtime[0], site=site, retOBS=True, DB=DB)
-
-        az = []
-        el = []
-        for ti in dtime:
-            obs.date = ti
-            b.compute(obs)
-            az.append(b.az)
-            el.append(b.alt)
-        az = np.array(az)
-        el = np.array(el)
-        phi    = np.pi/2. - az
-        theta  = np.pi/2. - el
-        unitVec  = np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)], ndmin=2).T
-        unitVec *= -1
-
-        # BVec.shape = (nFPGA*nAnt, 3)
-        # unitVec.shape = (nTime, 3)
-        tauGeo = np.tensordot(BVec, unitVec, axes=(1,1))  # delay in meters, shape (nFPGA*nAnt, nTime)
-        tauGeo /= 2.998e8   # delay in sec.
-
-        adoneh5(fout, tauGeo, 'tauGeo')
-        attrs2 = {'body':body, 'site':site}
-        putAttrs(fout, attrs2, dest='tauGeo')
-
 
 
 
@@ -385,12 +284,8 @@ for ll in range(nLoop):
 
     # normalization
     ax = sub[0]
-    if (not savN3 is None):
-        norm = savN3
-    elif (not savN2 is None):
-        norm = savN2
     for ai in range(nAnt3):
-        ax.plot(freq, norm[ai], label='Ant%d'%ai)
+        ax.plot(freq, savN2[ai], label='Ant%d'%ai)
     ax.set_yscale('log')
     ax.set_ylabel('voltage normalization')
     ax.legend(ncols=nCol)
@@ -423,59 +318,6 @@ for ll in range(nLoop):
     fig.suptitle(fout)
     fig.savefig('%s.png'%fout)
     plt.close(fig)
-
-
-
-    ## plot phase of individual antennas
-    if (nAnt3==64):
-        nx = 8
-        ny = 8
-        ww = 16
-        hh = 16
-    else:
-        nx = 8
-        ny = 2
-        ww = 16
-        hh = 4
-
-    fig, sub = plt.subplots(ny,nx,figsize=(ww,hh),sharex=True,sharey=True)
-    png = '%s.phases.png'%fout
-
-    freq2 = freq * 1e6  # to Hz
-    c_arr = phiCorr(tauGeo, freq2).conjugate()
-
-    LV3  = savV3[:,:,-1] # leading mode with coeff
-    LV3C = LV3 * c_arr.T.reshape((nChan, nAnt3))
-    if (aref is None):
-        aref = 0
-    ref  = LV3[:,aref]
-    ref  /= np.ma.abs(ref)
-    LV3  /= ref.reshape((-1,1))
-    refC  = LV3C[:,aref]
-    refC  /= np.ma.abs(refC)
-    LV3C  /= refC.reshape((-1,1))
-
-    ai = -1
-    for ii in range(ny):
-        for jj in range(nx):
-            ai += 1
-            ax = sub[ii,jj]
-            ax.plot(freq, np.ma.angle(LV3[:,ai]))
-            ax.plot(freq, np.ma.angle(LV3C[:,ai]))
-            #ax.legend()
-            ax.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax.transAxes)
-
-            if (jj==0):
-                ax.set_ylabel('phase (rad)')
-            if (ii==ny-1):
-                ax.set_xlabel('freq (MHz')
-
-    fig.tight_layout(rect=[0,0.03,1,0.95])
-    fig.subplots_adjust(wspace=0, hspace=0)
-    fig.savefig(png)
-    plt.close(fig)
-
-
 
 
     t3 = time.time()

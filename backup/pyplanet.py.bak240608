@@ -150,14 +150,9 @@ def obsSite(site='fushan6'):
             obs.lat         = '+24.7589'
             obs.elevation   = 650.0
         elif (site == 'fushan6'):   # site 6, 230418
-            #obs.long        = '121.5817'   # old
-            #obs.lat         = '+24.7564'   # old
-            obs.long        = '121.58164005833' # new
-            obs.lat         = '+24.75649957777' # new
-            obs.elevation   = 640.162
-            #lon = '121:34:53.90421'
-            #lat = '24:45:23.39848'
-            #height = 640.162*u.m
+            obs.long        = '121.5817'
+            obs.lat         = '+24.7564'
+            obs.elevation   = 650.0
         elif (site == 'longtien'): # DGPS measurement at 230721
             obs.long        = '120.82450942'    #'120.8244'
             obs.lat         = '+23.71464178' #'+23.7147'
@@ -237,15 +232,15 @@ def coordSite(site, lon=None, lat=None, height=None):
         height = tmp.elevation*u.m
         #print(lon, lat, height)
 
-    #if (site.lower() == 'fushan6'):
-    #    lon = '121:34:53.90421'
-    #    lat = '24:45:23.39848'
-    #    height = 640.162*u.m
+    if (site.lower() == 'fushan6'):
+        lon = '121:34:53.90421'
+        lat = '24:45:23.39848'
+        height = 640.162*u.m
     #elif (site.lower() == 'longtien'):
     #    lon = 120.82450942*u.deg
     #    lat = 23.71464178*u.deg
     #    height = 879.814*u.m 
-    if (site.lower() == 'aro'):
+    elif (site.lower() == 'aro'):
         lon = -78.072776*u.deg
         lat = 45.955555*u.deg
         height = 260.4*u.m
@@ -303,64 +298,6 @@ def tauBaseline(RA_rad, DEC_rad, BLvec, t_arr, t0=None):
         tauGeo[i] = np.dot(unit_vec, BLvec)
 
     return tauGeo
-
-
-def arrayConf(arr_config, nRow, rows=None, theta_rot=0.):
-    '''
-    specify an antenna config or a file listing the antenna positions
-    and the number of 'rows' to return
-    if a list of rows is given, then override the 'nRow'
-    theta_rot (in deg, CCW=+, CW=-) will rotate the arrays by the given angle
-    
-    return antenna positions (X,Y,Z) in metrs
-    shape = (nTotal, 3)
-    where nTotal = nRow*nAnt 
-    or the number of entries in the file
-    '''
-    if (rows is None):
-        rows = np.arange(nRow)
-    else:
-        nRow = len(rows)
-
-    pos = None
-    if (arr_config == '16x1.0y0.5'):
-        nAnt = 16
-        xsep = 1.0
-        ysep = 0.5
-    elif (arr_config == '16x1.0y2.0'):
-        nAnt = 16
-        xsep = 1.0
-        ysep = 2.0
-
-    else:
-        if (os.path.isfile(arr_config)):
-            pos = np.loadtxt(arr_config)
-        else:
-            print('error opening aconf file: %s'%arr_config)
-            return None
-
-    if (pos is None):
-        pos = np.zeros((nRow*nAnt,3))
-        ai = -1
-        for j in rows:
-            y = ysep*j
-            for i in range(nAnt):
-                x = xsep*i
-                ai += 1
-                pos[ai] = [x,y,0.]
-
-    if (theta_rot != 0.):   # rotation along Z
-        theta = theta_rot /180.*np.pi   # in radian
-        mat = np.array([
-            [np.cos(theta), -np.sin(theta)],
-            [np.sin(theta),  np.cos(theta)]
-            ])
-        tmp = np.tensordot(mat, pos[:,:2], axes=(1,1))
-        pos[:,:2] = tmp.T
-
-
-    return pos
-
 
 
 if (__name__ == '__main__'):

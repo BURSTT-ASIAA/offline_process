@@ -24,8 +24,8 @@ nChan   = 512       # for 64-ant
 flim    = [400., 800.]
 freq0    = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
 
-blocklen = 51200    # number of frames per block
-nSum    = 400       # integration number
+blocklen = 51200
+nSum    = 400
 
 verbose = 0
 
@@ -42,10 +42,6 @@ syntax:
     %s -r <ring_id> <dir> [options]
 
 options are:
-    --sum SUM       # the integration for the intensity data
-                    # (default: %d)
-    --frame FRAME   # number of frames per block
-                    # (default: %d)
     -o <odir>       # specify an output dir
     --redo          # force reading raw data
     --zlim zmin zmax# set the min/max color scale
@@ -54,7 +50,7 @@ options are:
                     # (default is to plot the normalized intensity)
     --both          # plot both raw and normalized intensities
 
-''' % (pg, nSum, blocklen)
+''' % (pg,)
 
 
 if (len(inp)<1):
@@ -231,7 +227,7 @@ for j in range(nRow):
             if (pt==0):
                 png = '%s/raw.row%d.png' % (odir2,j)
                 arr = arrInt[:,:,j]
-                #print(arrInt.shape, arr.shape)
+                print(arrInt.shape, arr.shape)
             elif (pt==1):
                 png = '%s/norm.row%d.png' % (odir2,j)
                 arr = arrNInt[:,:,j]
@@ -248,7 +244,7 @@ for j in range(nRow):
 
             for ai in range(nAnt):
                 ax = sub[ai]
-                #print(arr[:,:,ai].shape)
+                print(arr[:,:,ai].shape)
                 #ax.imshow(arrInt[:,ai].T, origin='lower', aspect='auto')
                 ax.pcolormesh(X,Y,arr[:,:,ai].T, vmin=vmin, vmax=vmax, shading='auto')
 
