@@ -149,7 +149,7 @@ while (inp):
     elif (k == '--rows'):
         tmp = inp.pop(0)
         rows = [int(x) for x in tmp.split()]
-    elif (k == '-aref'):
+    elif (k == '--aref'):
         aref = int(inp.pop(0))
     elif (k == '--body'):
         body = inp.pop(0)
@@ -393,7 +393,9 @@ for ll in range(nLoop):
         ax.plot(freq, norm[ai], label='Ant%d'%ai)
     ax.set_yscale('log')
     ax.set_ylabel('voltage normalization')
-    ax.legend(ncols=nCol)
+    #ax.legend(ncols=nCol)
+    if (nAnt3<=64):
+        ax.legend(ncols=nCol)
 
     # eigenvalues
     ax = sub[1]
@@ -405,7 +407,8 @@ for ll in range(nLoop):
         #ax.plot(freq, 10.*np.log10(y), label='Mode%d'%ai)
         ax.plot(freq, y2, label='Mode%d'%ai)
     ax.set_ylabel('power (dB)')
-    ax.legend(ncols=nCol)
+    if (nAnt3<=64):
+        ax.legend(ncols=nCol)
 
     # eigenvector of leading mode, phase
     ax = sub[2]
@@ -415,9 +418,13 @@ for ll in range(nLoop):
         y = savV3[:,ai,-1]
         ax.plot(freq, np.ma.angle(y), label='Ant%d'%ai)
     ax.set_ylabel('phase (rad)')
-    ax.legend(ncols=nCol)
+    #ax.legend(ncols=nCol)
+    if (nAnt3<=64):
+        ax.legend(ncols=nCol)
     ax.set_xlabel('freq (MHz)')
-    ax.set_xlim(flim[0], flim[1]*1.25)
+    ax.set_xlim(flim[0], flim[1])
+    if (nAnt3<=64):
+        ax.set_xlim(flim[0], flim[1]*1.25)
 
     fig.tight_layout(rect=[0,0.03,1,0.95])
     fig.suptitle(fout)
@@ -432,48 +439,64 @@ for ll in range(nLoop):
         ny = 8
         ww = 16
         hh = 16
-    else:
+    elif (nAnt3==16):
         nx = 8
         ny = 2
         ww = 16
         hh = 4
+    else:
+        nx = 16
+        ny = nAnt3//nx
+        ww = 16
+        hh = 1.0*ny
 
     fig, sub = plt.subplots(ny,nx,figsize=(ww,hh),sharex=True,sharey=True)
     png = '%s.phases.png'%fout
+    fig2, sub2 = plt.subplots(ny,nx,figsize=(ww,hh),sharex=True,sharey=True)
+    png2 = '%s.ampld.png'%fout
 
     freq2 = freq * 1e6  # to Hz
     c_arr = phiCorr(tauGeo, freq2).conjugate()
 
+    print('savN3.shape:', savN3.shape)
     LV3  = savV3[:,:,-1] # leading mode with coeff
     LV3C = LV3 * c_arr.T.reshape((nChan, nAnt3))
     if (aref is None):
         aref = 0
-    ref  = LV3[:,aref]
-    ref  /= np.ma.abs(ref)
+    ref  = LV3[:,aref] / np.ma.abs(LV3[:,aref])
     LV3  /= ref.reshape((-1,1))
-    refC  = LV3C[:,aref]
-    refC  /= np.ma.abs(refC)
+    refC  = LV3C[:,aref] / np.ma.abs(LV3C[:,aref])
     LV3C  /= refC.reshape((-1,1))
+
 
     ai = -1
     for ii in range(ny):
         for jj in range(nx):
             ai += 1
             ax = sub[ii,jj]
+            ax2 = sub2[ii,jj]
             ax.plot(freq, np.ma.angle(LV3[:,ai]))
             ax.plot(freq, np.ma.angle(LV3C[:,ai]))
+            ax2.plot(freq, 10*np.ma.log10(np.ma.abs(LV3[:,ai]*savN3[ai])))
             #ax.legend()
             ax.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax.transAxes)
+            ax2.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax2.transAxes)
 
             if (jj==0):
-                ax.set_ylabel('phase (rad)')
+                ax.set_ylabel('power (dB)')
+                ax2.set_ylabel('power (dB)')
             if (ii==ny-1):
                 ax.set_xlabel('freq (MHz')
+                ax2.set_xlabel('freq (MHz')
 
     fig.tight_layout(rect=[0,0.03,1,0.95])
     fig.subplots_adjust(wspace=0, hspace=0)
     fig.savefig(png)
     plt.close(fig)
+    fig2.tight_layout(rect=[0,0.03,1,0.95])
+    fig2.subplots_adjust(wspace=0, hspace=0)
+    fig2.savefig(png2)
+    plt.close(fig2)
 
 
 

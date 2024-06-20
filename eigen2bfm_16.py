@@ -166,6 +166,7 @@ for i in range(nFile):
     # take the leading eigenmode corresponding to the calibrator (at transit time)
     refV2  = V2[:,:,-1]         # averaged window, last mode
     refV2 /= np.abs(refV2)      # keep only the phase info
+    refV2 /= refV2[:,0].reshape((-1,1)) # remove Ant0 phase
     print('refV2.shape:', refV2.shape)
 
 

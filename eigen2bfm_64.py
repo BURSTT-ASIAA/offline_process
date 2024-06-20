@@ -214,6 +214,8 @@ for i in range(len(files)):
     tmp  = getData(feig, tgtVec) # shape: (nChan, nAnt, nMode)
     # take the leading eigenmode corresponding to the calibrator (at transit time)
     tmp = tmp[:,:,-1]           # shape: (nChan, nAnt)
+    tref = tmp[:,0] / np.ma.abs(tmp[:,0])   # Ant0, phase-only
+    tmp /= tref.reshape((-1,1))
     if (V2_64 is None):
         V2_64 = tmp
     else:
