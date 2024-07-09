@@ -18,10 +18,11 @@ syntax:
     %s <file(s)> [options]
 
 options are:
+    -n nPack        # how many packets to display (%d)
     --meta bytes    # ring buffer or file metadata length in bytes
     --ip            # to also display the local and dest IPs
 
-''' % (pg,)
+''' % (pg, nPack)
 
 if (len(inp)<1):
     sys.exit(usage)
@@ -29,7 +30,9 @@ if (len(inp)<1):
 files = []
 while(inp):
     k = inp.pop(0)
-    if (k == '--meta'):
+    if (k == '-n'):
+        nPack = int(inp.pop(0))
+    elif (k == '--meta'):
         meta = int(inp.pop(0))
     elif (k == '--ip'):
         ip = True
@@ -54,7 +57,7 @@ for j in range(nFile):
         off = packSize * i + meta
         fh.seek(off)
         hd = fh.read(headSize)
-        tmp = decHeader2(hd, ip=ip)
+        tmp = decHeader2(hd, ip=ip, verbose=False)
         print(tmp)
     fh.close()
 

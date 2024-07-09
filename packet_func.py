@@ -543,9 +543,13 @@ def dataPack(data, bitwidth=4):
     return buf
 
 
-def decHeader2(buf, ip=False):
-    if (buf[58:64]!=b'RSTTTT'):
-        print('invalid header encountered')
+def decHeader2(buf, ip=False, verbose=True):
+    #if (buf[58:64]!=b'RSTTTT'):
+    if (buf[58:64]==b'RSTTTT' or buf[58:64]==b'BURSTT'):
+        pass
+    else:
+        if (verbose):
+            print('invalid header encountered')
         return None
 
     pcnt  = struct.unpack('<Q', buf[:8])[0]
