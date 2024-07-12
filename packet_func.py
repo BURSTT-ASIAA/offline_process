@@ -26,7 +26,9 @@ def headerUnpack(header, order_off=0, verbose=0, hdver=1):
         pko = header[8] + order_off
     elif (hdver == 2):
         chk = header[58:64]
-        if (chk != b'RSTTTT'):  # updated header_2
+        if (chk == b'RSTTTT' or chk == b'BURSTT'):  # updated header_2
+            pass
+        else:
             if (verbose > 0):
                 print('packet read error. abort!')
             return None
@@ -106,7 +108,7 @@ def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1,
     elif (bitwidth==16):
         nsamp = bpp//4
 
-    data0 = np.ma.array(np.zeros((npack, nsamp), dtype=complex), mask=False)
+    data0 = np.ma.array(np.zeros((npack, nsamp), dtype=np.complex64), mask=False)
     clock = np.ma.array(np.zeros(npack, dtype=np.int64), mask=False)
     order = np.ma.array(np.zeros(npack, dtype=int), mask=False)
     for i in range(npack):
@@ -123,6 +125,41 @@ def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1,
             order[i] = pko
 
     return data0, clock, order
+
+
+def formSpec2(data0, bpp=8192, nAnt=16, nFPGA=16, grp=2, nChan=128, nStack=4, bitmap=None, verbose=0):
+    '''
+    convert packet data of bf256 to spectra
+    bf256-specific settings:
+        nChan=128
+        nStack=4
+        nFPGA=16
+    for bf64, change to:
+        nChan=512
+        nStack=1
+        nFPGA=4
+
+    input:
+        data0: shape=(nPack,bpp)
+    output:
+        antSpec: shape=(nFPGA,nFrame,nAnt,nChan)
+    '''
+    nPack = data0.shape[0]
+    nChunk = nPack//nFPGA
+    nFrame = nChunk * nStack
+    nGrp = nChan//grp
+
+    #antSpec = np.ma.array(np.zeros((nFPGA,nFrame,nAnt,nChan), dtype=np.complex64), mask=False)
+    tmp = data0.reshape((nChunk,nFPGA,bpp)).reshape((nChunk,nFPGA,nStack,nGrp,nAnt,grp))
+    antSpec = tmp.transpose((1,0,2,4,3,5)).reshape((nFPGA,nFrame,nAnt,nChan))
+    antSpec = np.ma.array(antSpec, mask=False)
+
+    tmp2 = np.tile(bitmap.reshape((1,nChunk,nFPGA)), (nStack,1,1))
+    #print(tmp2.shape)
+    antSpec.mask = ~tmp2.transpose((2,1,0)).reshape((nFPGA,nFrame))
+    #print(antSpec)
+
+    return antSpec
 
 
 def formSpec(data0, clock, order, ppf, nAnt=16, grp=2, nChan=1024, bitmap=None, verbose=0):
@@ -149,9 +186,9 @@ def formSpec(data0, clock, order, ppf, nAnt=16, grp=2, nChan=1024, bitmap=None, 
     npack, bpp = data0.shape    # e.g. 1000, 8192
 
     # pre-defined format, ignore input
-    if (ppf == 2):
+    if (ppf == 2):      # 4bit, bf16, bf64 modes
         grp = 2
-    elif (ppf == 8):
+    elif (ppf == 8):    # 16bit mode
         grp = 1
 
     ## rearranging packets into frames, taking into account lost packets
@@ -295,7 +332,7 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
     return data_tick, antSpec
 
 
-def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=2, meta=64, nFPGA=4, no_bitmap=False):
+def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=2, meta=64, nFPGA=4, no_bitmap=False, get_order=False):
     '''
     load the ring buffer file of one node
 
@@ -308,6 +345,10 @@ def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdl
 
     if (nFPGA == 4):
         nChan = 512
+        nStack = 1
+    elif (nFPGA == 16):
+        nChan = 128
+        nStack = 4
 
     mdict = metaRead(fh)
     blocklen = mdict['packet_number']
@@ -317,22 +358,31 @@ def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdl
     bitmap = BM[pack0:pack0+npack]
     if (no_bitmap):
         bitmap = np.ones(npack, dtype=bool)
+    #print('debug:', bitmap[2])
 
 
     data0, clock0, order0 = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver, meta=meta)
-    data1 = data0.reshape((-1,nFPGA,bpp))
-    clock1 = clock0.reshape((-1,nFPGA))
-    order1 = order0.reshape((-1,nFPGA))
-    bitmap1 = bitmap.reshape((-1,nFPGA))
+    #print('debug:', data0.shape)
+    #print('debug:', data0[2])
+    antSpec = formSpec2(data0, nFPGA=nFPGA, nChan=nChan, nStack=nStack, bitmap=bitmap)
 
+    #data1 = data0.reshape((-1,nFPGA,bpp))
+    #clock1 = clock0.reshape((-1,nFPGA))
+    #order1 = order0.reshape((-1,nFPGA))
+    #bitmap1 = bitmap.reshape((-1,nFPGA))
 
-    antSpec = []
-    for i in range(nFPGA):
-        tmp = formSpec(data1[:,i], clock1[:,i], order1[:,i], ppf, nChan=nChan, nAnt=nAnt, grp=grp, bitmap=bitmap1[:,i], verbose=verbose)
-        antSpec.append(tmp[1])
+    #antSpec = []
+    #for i in range(nFPGA):
+    #    tmp = formSpec(data1[:,i], clock1[:,i], order1[:,i], ppf, nChan=nChan, nAnt=nAnt, grp=grp, bitmap=bitmap1[:,i], verbose=verbose)
+    #    antSpec.append(tmp[1])
+    #return np.array(antSpec)    # shape = (nFPGA, nFrame, nAnt, nChan)
 
-    return np.array(antSpec)    # shape = (nFPGA, nFrame, nAnt, nChan)
+    out_order = np.median(order0.flatten()).astype(int)
 
+    if (get_order):
+        return antSpec, out_order
+    else:
+        return antSpec
 
 
 def spec2Stream(spec, shift=True):
