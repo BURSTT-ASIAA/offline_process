@@ -97,8 +97,6 @@ options are:
     --rot theta_rot # the array misalignment angle in deg
                     # default to 0.0 if a config file is provided
                     # or the predefined value of the site
-                    # (fushan6 default to -1.8)
-                    # (longtien default to +0.5)
                     # 0.0 if it is not defined yet
 
     --redo      # re-generate eigenmodes
@@ -144,13 +142,10 @@ while (inp):
         hdver = int(inp.pop(0))
     elif (k == '--meta'):
         meta = int(inp.pop(0))
-        hdver = 2   # override
     elif (k == '--ooff'):
         order_off = int(inp.pop(0))
     elif (k == '--combine'):
         combine = True
-    elif (k == '--array'):
-        arr_config = inp.pop(0)
     elif (k == '--rows'):
         tmp = inp.pop(0)
         rows = [int(x) for x in tmp.split()]
@@ -196,16 +191,12 @@ for ll in range(nLoop):
     if (not user_fout):
         if (nFile == 1):   # override default fout if input is a single file
             fout = files[0] + '.eigen.h5'
-    cdir = '%s.check'%fout
-    if (not os.path.isdir(cdir)):
-        call('mkdir %s'%cdir, shell=True)
     print('eigenmode is saved in:', fout, '...')
 
 
     if (site == 'fushan6'):
         if (theta_rot is None):
-            #theta_rot = -3.0
-            theta_rot = -1.8    # updated as of 240613 (sujin's result)
+            theta_rot = -3.0
     elif (site == 'longtien'):
         if (arr_config == '16x1.0y0.5'):    # the default
             arr_config = '16x1.0y2.0'
@@ -214,7 +205,6 @@ for ll in range(nLoop):
     if (theta_rot is None):
         theta_rot = 0.
 
-    print('using theta_rot:', theta_rot)
     pos = arrayConf(arr_config, nFile, rows=rows, theta_rot=theta_rot)
     if (aref is None):
         BVec = pos
@@ -240,7 +230,6 @@ for ll in range(nLoop):
         attrs['filename'] = files
         attrs['nAnt'] = nAnt
         attrs['nChan'] = nChan
-        attrs['nFPGA'] = nFile
 
         ftime0 = None
         tsec = []
@@ -262,8 +251,6 @@ for ll in range(nLoop):
 
         t0 = time.time()
 
-        localip = []
-        dest_ip = []
         ii = -1
         for i in range(nFile):
             print(i, files[i])
@@ -296,13 +283,6 @@ for ll in range(nLoop):
                 autoblock=False
 
             fh = open(fbin, 'rb')
-            if (hdver == 2):
-                fh.seek(meta)
-                hbuf = fh.read(hdlen)
-                tmp = decHeader2(hbuf, ip=True)
-                localip.append(tmp[5])
-                dest_ip.append(tmp[6])
-
             BM = loadFullbitmap(fh, nBlock, blocklen=blocklen, meta=meta)
             bitmap = BM[p0:p0+nPack]
             if (no_bitmap):
@@ -324,10 +304,6 @@ for ll in range(nLoop):
         ## new shape (nFile*nAnt, nFrame, nChan), only 3 axes
         tsec = np.array(tsec).reshape((nFile, -1)).mean(axis=0)
         
-        if (len(localip)>0):
-            attrs['localip'] = localip
-        if (len(dest_ip)>0):
-            attrs['dest_ip'] = dest_ip
 
         Cov2, norm2 = makeCov(spec, scale=True, coeff=False, bandpass=True, ant_flag=ant_flag, nPool=nPool)
         #Cov2, norm2 = makeCov(spec, scale=True, coeff=False, bandpass=False, ant_flag=ant_flag)
@@ -396,8 +372,6 @@ for ll in range(nLoop):
 
         adoneh5(fout, tauGeo, 'tauGeo')
         attrs2 = {'body':body, 'site':site}
-        attrs2['array'] = arr_config
-        attrs2['theta_rot'] = theta_rot
         putAttrs(fout, attrs2, dest='tauGeo')
 
 
@@ -454,8 +428,7 @@ for ll in range(nLoop):
 
     fig.tight_layout(rect=[0,0.03,1,0.95])
     fig.suptitle(fout)
-    #fig.savefig('%s.png'%fout)
-    fig.savefig('%s/%s.png'%(cdir, fout))
+    fig.savefig('%s.png'%fout)
     plt.close(fig)
 
 
@@ -478,9 +451,9 @@ for ll in range(nLoop):
         hh = 1.0*ny
 
     fig, sub = plt.subplots(ny,nx,figsize=(ww,hh),sharex=True,sharey=True)
-    png = '%s/%s.phases.png'%(cdir, fout)
+    png = '%s.phases.png'%fout
     fig2, sub2 = plt.subplots(ny,nx,figsize=(ww,hh),sharex=True,sharey=True)
-    png2 = '%s/%s.ampld.png'%(cdir, fout)
+    png2 = '%s.ampld.png'%fout
 
     freq2 = freq * 1e6  # to Hz
     c_arr = phiCorr(tauGeo, freq2).conjugate()
@@ -495,10 +468,6 @@ for ll in range(nLoop):
     refC  = LV3C[:,aref] / np.ma.abs(LV3C[:,aref])
     LV3C  /= refC.reshape((-1,1))
 
-    adoneh5(fout, LV3C, 'antCal')
-    fnpy = '%s/%s.antCal.npy'%(cdir, fout)
-    np.save(fnpy, LV3C)
-
 
     ai = -1
     for ii in range(ny):
@@ -508,7 +477,7 @@ for ll in range(nLoop):
             ax2 = sub2[ii,jj]
             ax.plot(freq, np.ma.angle(LV3[:,ai]))
             ax.plot(freq, np.ma.angle(LV3C[:,ai]))
-            ax2.plot(freq, 10*np.ma.log10(np.ma.abs(LV3C[:,ai]*savN3[ai])))
+            ax2.plot(freq, 10*np.ma.log10(np.ma.abs(LV3[:,ai]*savN3[ai])))
             #ax.legend()
             ax.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax.transAxes)
             ax2.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax2.transAxes)

@@ -300,13 +300,6 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
         data_tick, shape=(ntick,)
         antSpec, shape=(ntick, nAnt, nChan)
     '''
-    if (meta == 64):    # assuming a valid file header
-        # override default nBlock and blocklen
-        mdict = metaRead(fh)
-        blocklen = mdict['packet_number']
-        nBlock = mdict['block_number']
-        # also override hdver
-        hdver = 2
 
     if (bitmap is None and nBlock>0):
         BM = loadFullbitmap(fh, nBlock, blocklen=blocklen, meta=meta)
@@ -449,13 +442,11 @@ def makeBitmap(bitmap):
     return buf
 
 
-def loadFullbitmap(fh, nBlock=None, bpp=8192, hdlen=64, blocklen=1000000, version=1, meta=0):
+def loadFullbitmap(fh, nBlock, bpp=8192, hdlen=64, blocklen=1000000, version=1, meta=0):
     '''
     version: 1
         the bitmap is located at the end of the buffer
         the buffer consists of nblock blocks (each block contains blocklen of packets)
-
-        if meta==64, then nBlock and starting offset is taken from the file header
 
         input:
             fh: the open binary file handle
@@ -472,12 +463,6 @@ def loadFullbitmap(fh, nBlock=None, bpp=8192, hdlen=64, blocklen=1000000, versio
                 value:: True: valid; False: invalid
 
     '''
-
-    if (meta==64):  # assuming a valid file header
-        # override default nBlock and blocklen
-        mdict = metaRead(fh)
-        blocklen = mdict['packet_number']
-        nBlock = mdict['block_number']
 
     nTotal = nBlock * blocklen  # number of packets = number of bits in the bitmap
     nBytes = nTotal // 8        # bitmap length in bytes
