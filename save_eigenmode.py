@@ -159,7 +159,7 @@ while (inp):
     elif (k == '--body'):
         body = inp.pop(0)
     elif (k == '--site'):
-        site == inp.pop(0)
+        site = inp.pop(0)
     elif (k == '--rot'):
         theta_rot = float(inp.pop(0))
     elif (k == '--redo'):
