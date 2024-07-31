@@ -73,7 +73,7 @@ options are:
     -o fout     # specify an output file name
                 # (default: %s)
     --flag 'ant(s)'
-                # specify the input number (0--15) to be flagged
+                # specify the input number (0--nAnt*nFPGA) to be flagged
     --hd VER    # header version (1, 2)
                 # (default: %d)
     --meta bytes # number of bytes in the ring buffer or file metadata
@@ -204,8 +204,8 @@ for ll in range(nLoop):
 
     if (site == 'fushan6'):
         if (theta_rot is None):
-            #theta_rot = -3.0
-            theta_rot = -1.8    # updated as of 240613 (sujin's result)
+            theta_rot = -3.0    # sujin's number
+            #theta_rot = -1.8    # old number
     elif (site == 'longtien'):
         if (arr_config == '16x1.0y0.5'):    # the default
             arr_config = '16x1.0y2.0'
@@ -433,6 +433,7 @@ for ll in range(nLoop):
         #ax.plot(freq, 10.*np.log10(y), label='Mode%d'%ai)
         ax.plot(freq, y2, label='Mode%d'%ai)
     ax.set_ylabel('power (dB)')
+    ax.set_ylim(-15, 25)
     if (nAnt3<=64):
         ax.legend(ncols=nCol)
 
