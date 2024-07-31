@@ -300,6 +300,7 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
         data_tick, shape=(ntick,)
         antSpec, shape=(ntick, nAnt, nChan)
     '''
+    #print('debug: meta', meta)
     if (meta == 64):    # assuming a valid file header
         # override default nBlock and blocklen
         mdict = metaRead(fh)
@@ -307,6 +308,8 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
         nBlock = mdict['block_number']
         # also override hdver
         hdver = 2
+        if (verbose):
+            print('nBlock', nBlock, 'blocklen', blocklen)
 
     if (bitmap is None and nBlock>0):
         BM = loadFullbitmap(fh, nBlock, blocklen=blocklen, meta=meta)
