@@ -87,7 +87,7 @@ while(inp):
 
 
 if (site.lower() == 'fushan6' and theta_rot_deg==0.):
-    theta_rot_deg = -1.8
+    theta_rot_deg = -3.0
 elif (site.lower() == 'longtien' and theta_rot_deg==0.):
     theta_rot_deg = 0.5
 
