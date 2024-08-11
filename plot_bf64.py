@@ -206,7 +206,50 @@ if (nDir==1):
 if (not os.path.isdir(odir2)):
     call('mkdir %s'%odir2, shell=True)
 
+## 64 beams in one plot
+png = '%s/norm.64beams.png' % (odir2)
+#fig, sub = plt.subplots(4,16,figsize=(32,8), sharex=True, sharey=True)
+fig, tmp = plt.subplots(8,16,figsize=(32,12), sharex=True, height_ratios=[2,1,2,1,2,1,2,1])
+sub  = tmp[0::2]
+sub2 = tmp[1::2]
 
+
+for kk in range(nDir):
+    arrNInt = arrNInts[kk]
+    freq = freqs[kk]
+    winSec = tsecs[kk]
+    winDT = Time(loc0+winSec, format='unix').to_datetime()
+    X = winDT
+    Y = freq
+
+    if (zlim is None):
+        vmin = arrNInt.min()
+        vmax = arrNInt.max()
+    else:
+        vmin = zlim[0]
+        vmax = zlim[1]
+    print('zmin,zmax:', vmin, vmax)
+
+    for j in range(nRow):
+        for ai in range(nAnt):
+            ax = sub[nRow-1-j, ai]
+            ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
+
+            prof = arrNInt[:,:,j,ai].mean(axis=1) # avg in freq, each node separately
+            ax2 = sub2[nRow-1-j, ai]
+            ax2.plot(winDT, prof)
+            ax2.set_ylim(vmin, vmax)
+
+fig.autofmt_xdate()
+fig.tight_layout(rect=[0,0.03,1,0.95])
+fig.subplots_adjust(wspace=0, hspace=0)
+fig.suptitle(odir2)
+fig.savefig(png)
+plt.close(fig)
+sys.exit('finished')
+
+
+## plot each row separately
 for j in range(nRow):
     fig, s2d = plt.subplots(8,4,figsize=(16,12), sharex=True, height_ratios=[2,1,2,1,2,1,2,1])
     sub = s2d[0::2,:].flatten()
@@ -265,5 +308,6 @@ for j in range(nRow):
     fig.subplots_adjust(wspace=0, hspace=0)
     fig.savefig(png)
     plt.close(fig)
+
 
 
