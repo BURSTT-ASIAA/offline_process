@@ -19,9 +19,11 @@ cal = 'sun'         # the default calibrator
 caldt = datetime.utcnow()
 calstr = caldt.strftime('%y%m%d')
 site = 'fushan6'
+tz = 8.             # time zone in hours from utc
 theta_rot_deg = 0.  # array misalignment angle in deg (>0 for North-toward-West)
 theta_off_inp = 0.  # offset of central beam when calibrated to actual Sun transit time data
 flim = [0.,0.]
+use_cal = False     # whether to use theta_off according to calibration
 
 inp = sys.argv[0:]
 pg  = inp.pop(0)
@@ -47,11 +49,11 @@ options are
     --flim FMIN FMAX
                 # set min/max freq in MHz
     --rot DEG   # array misalignment angle in degree
-                # e.g. Fushan = -3; Nantou = +1
+                # e.g. Fushan = -3.0; Nantou = +0.5
                 # (default: %.1f)
-    --off DEG   # central beam offset to account for Sun transit calibration
-                # will override the caldate prediction
-                # (default: using the caldate to predict)
+    --off DEG   # additional beam offset of the beams in deg
+                # (if --caldate is not set, will default to theta_off=0)
+                # (if --caldate is set, the prediction will be used to counter the calibrator offset)
     --caldate YYMMDD
                 # the date when the calibration data was taken
                 # (default: today)
@@ -80,6 +82,7 @@ while(inp):
     elif (k == '--caldate'):
         calstr = inp.pop(0)
         caldt = datetime.strptime(calstr, '%y%m%d')
+        use_cal = True
     else:
         src = k
         t1str = inp.pop(0)
@@ -103,25 +106,26 @@ cb, cobs = obsBody(cal, time=caldt, site=site, retOBS=True, DB=DB)
 cobs.pressure = 1013     # mbar
 cobs.temperature = 25    # deg C
 decl = cb.dec
-#print('calibrator decl:', decl, float(decl))
 t_trans = cobs.next_transit(cb)
 cobs.date = t_trans
 cb.compute(cobs)
 max_el = cb.alt
-#print('source max el.:', max_el, float(max_el))
-print('calibrator (%s): decl %s  max_el %s'%(cal, decl, max_el))
-zenith_angle = np.pi/2. - float(max_el)
+
 theta_rot = theta_rot_deg/180.*np.pi
-theta_off = theta_rot * zenith_angle
-theta_off_deg = theta_off / np.pi*180.
-t_off = theta_off_deg*60./(15.*np.cos(decl))
 print('misalignment angle: %.2f deg'%theta_rot_deg)
-print('central beam offset: %.2f deg, %.2f min' % (theta_off_deg, t_off))
 
 
 ## modify the beam angles
-if (theta_off_inp != 0.):
+#if (theta_off_inp is not None):
+if (not use_cal):
     theta_off_deg = theta_off_inp
+else:
+    zenith_angle = np.pi/2. - float(max_el)
+    theta_off = theta_rot * zenith_angle
+    theta_off_deg = theta_off / np.pi*180.
+    t_off = theta_off_deg*60./(15.*np.cos(decl))
+    print('calibrator (%s): decl %s  max_el %s'%(cal, decl, max_el))
+    print('central beam offset: %.2f deg, %.2f min' % (theta_off_deg, t_off))
 print('beam offset adopted: %.2f deg'%theta_off_deg)
 theta_deg += theta_off_deg
 theta_rad = theta_deg / 180. * np.pi
@@ -138,6 +142,7 @@ tsec = np.linspace(0, dur, nSky)
 ut0 = dt1.to_value('unix')
 ut2 = Time(ut0 + tsec, format='unix').to_datetime()
 #print('debug:', dt1, dt2, dur, ut0)
+lt2 = Time(ut0 + tsec + 3600*tz, format='unix').to_datetime()
 
 b, obs = obsBody(src, time=ut2[0], site=site, retOBS=True, DB=DB)
 #print(ut[0], b.ha, b.az, b.alt)
@@ -218,7 +223,7 @@ outInt = np.flip(outInt, axis=0)
 
 ofile = '%s.UT%s.%s.switch.times'%(site, t1str, src)
 fo = open(ofile, 'w')
-print('# beam switching time:', file=fo)
+print('# beam switching time: UT, local_time', file=fo)
 Tsw = []
 for i in range(nBeam-1, 0, -1):
     y1 = outInt[i]
@@ -234,7 +239,8 @@ for i in range(nBeam-1, 0, -1):
     j = np.ma.argmin(np.ma.abs(y1-y2))
     Tsw.append(ut2[j])
     #print('beam%d-->%d:'%(i,i-1), ut2[j], y1[j], y2[j])
-    print('beam %02d-->%02d:'%(i,i-1), ut2[j].strftime('%y%m%d %H:%M:%S'), file=fo)
+    #print('beam %02d-->%02d:'%(i,i-1), ut2[j].strftime('%y%m%d %H:%M:%S'), file=fo)
+    print('beam %02d-->%02d:'%(i,i-1), ut2[j].strftime('%y%m%d %H:%M:%S'), lt2[j].strftime('%y%m%d %H:%M:%S'), file=fo)
 fo.close()
 call('cat %s'%ofile, shell=True)
 
@@ -269,6 +275,10 @@ for ri in range(1):
     fig.autofmt_xdate()
     fig.tight_layout(rect=[0,0.03,1,0.95])
     fig.suptitle('%s @ %s, %s, beam0=%d'%(src,site,t1str, beam0))
-    fig.savefig('%s.UT%s.%s.angles.png'%(site, t1str, src))
+    png = '%s.UT%s.%s.angles.png'%(site, t1str, src)
+    fig.savefig(png)
     plt.close(fig)
+
+    print('figure saved:', png)
+
 
