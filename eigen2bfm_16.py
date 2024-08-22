@@ -24,6 +24,7 @@ asel = [0, 2, 9, 15] # bl: 2, 6, 7, 9, 13, 15
 #asel = [0, 1, 4, 15] # bl: 1, 3, 4, 11, 14, 15
 beam0 = -16     # offset toward East
 #beam0 = -7.5   # symmetric about zenith
+theta_off = 0.
 #feig = 'fpga0.1214114800.bin.eigen.h5'
 use_coeff = False
 fpga_id = -1
@@ -48,6 +49,8 @@ syntax:
                         # quote multiple numbers with blank separation
     --aconf ACONF       # specify an antenna configuration file
                         # default: 1m spacing E-W array
+    --off theta_off     # additional offset angle of the beams in deg
+                        # default: %.2f deg
     --beam0 B0          # specify the offset of the beams
                         # 0 puts the East-most beam at zenith
                         # -7.5 puts equal number of beams to the West and East
@@ -57,7 +60,7 @@ syntax:
     --vis_sel '....'    # specify the 4 antenna numbers used for visibility
                         # default: [%s]
 
-''' % (pg, beam0, ', '.join(map(str,asel)))
+''' % (pg, theta_off, beam0, ', '.join(map(str,asel)))
 
 if (len(inp)<2):
     sys.exit(usage)
@@ -70,6 +73,8 @@ while (inp):
         ant_flag = [int(x) for x in tmp.split()]
     elif (k == '--coeff'):
         use_coeff = True
+    elif (k == '--off'):
+        theta_off = float(inp.pop(0))
     elif (k == '--beam0'):
         beam0 = int(inp.pop(0))
     elif (k == '--aconf'):
@@ -115,6 +120,8 @@ lamb = 2.998e8 / (fMHz * 1e6)  # in meters
 
 sin_theta_m = lamb0/sep/nAnt*(np.arange(nAnt)+beam0)    # offset toward East (HA<0)
 theta_deg = np.arcsin(sin_theta_m)/np.pi*180.
+theta_deg += theta_off
+sin_theta_m = np.sin(theta_deg/180.*np.pi)
 print('angles (deg):', theta_deg)
 
 # define beamform matrix

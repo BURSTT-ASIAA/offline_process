@@ -24,6 +24,7 @@ aconf   = '16x1.0y0.5'
 rows    = None
 sep     = 1.    # separation in meters, in X-axis
 theta_rot = 0.
+theta_off = 0.
 ant_flag = [[],[],[],[]]
 ## antenna selection for visibility
 asel = [0, 2, 9, 15] # bl: 2, 6, 7, 9, 13, 15
@@ -68,6 +69,8 @@ syntax:
                         # default: %.1f m
     --rows 'rows'       # specify the row numbers used, numbers separated by spaces
                         # default: the first nRows=4 rows
+    --off theta_off     # additional offset angles of the beams in deg
+                        # default: %.2f deg
     --beam0 B0          # specify the offset of the beams
                         # 0 puts the East-most beam at zenith
                         # -7.5 puts equal number of beams to the West and East
@@ -79,7 +82,7 @@ syntax:
     --beq <med_BEQ>     # set target median value of the BFM parameters
                         # range: (0, 127), default: %.0f
 
-''' % (pg, sep, beam0, ', '.join(map(str,asel)), medBEQ)
+''' % (pg, sep, theta_off, beam0, ', '.join(map(str,asel)), medBEQ)
 
 if (len(inp)<1):
     sys.exit(usage)
@@ -106,6 +109,8 @@ while (inp):
         rows = [int(x) for x in tmp.split()]
     elif (k == '--rot'):
         theta_rot = float(inp.pop(0))
+    elif (k == '--off'):
+        theta_off = float(inp.pop(0))
     elif (k == '--beq'):
         medBEQ = float(inp.pop(0))
     elif (k == '--vis_sel'):
@@ -169,6 +174,8 @@ freq2 = fMHz*1e6
 
 sin_theta_m = lamb0/sep/nAnt*(np.arange(nAnt)+beam0)    # offset toward East (HA<0)
 theta_deg = np.arcsin(sin_theta_m)/np.pi*180.
+theta_deg += theta_off
+sin_theta_m = np.sin(theta_deg/180.*np.pi)
 print('angles (deg):', theta_deg)
 
 # define beamform matrix
