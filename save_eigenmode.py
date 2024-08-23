@@ -496,9 +496,13 @@ for ll in range(nLoop):
     refC  = LV3C[:,aref] / np.ma.abs(LV3C[:,aref])
     LV3C  /= refC.reshape((-1,1))
 
+    NLV3C = savN3.T * LV3C  # shape (nChan, nAnt)
+    NLV3C.fill_value = 0j
+
     adoneh5(fout, LV3C, 'antCal')
     fnpy = '%s/%s.antCal.npy'%(cdir, fout)
-    np.save(fnpy, LV3C)
+    #np.save(fnpy, LV3C)    # LV3C is phase-only
+    np.save(fnpy, NLV3C.filled())    # NLV3C includes bandpass EQ
 
 
     ai = -1
