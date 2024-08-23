@@ -50,7 +50,7 @@ options are:
     --p0 p0         # starting packet (%d)
     --16bit         # is 16bit data (default is 4bit data)
     --hd VER        # header version: 1 or 2 (%d)
-    --meta bytes    # ring buffer or file metadata length in bytes
+    --meta bytes    # ring buffer or file metadata length in bytes (%d)
     --nBlock nBlock # number of blocks in the file (%d)
     --blocklen blocklen
                     # the number of packets in a block (%d)
@@ -60,7 +60,7 @@ options are:
     --zlim zmin zmax# set the min/max color scale
     --no-bitmap     # ignore bitmap from the data
 
-''' % (pg, nPack, p0, hdver, nBlock, blocklen, order_off)
+''' % (pg, nPack, p0, hdver, meta, nBlock, blocklen, order_off)
 
 
 if (len(inp)<1):
