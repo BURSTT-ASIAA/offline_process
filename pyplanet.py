@@ -22,6 +22,8 @@ from astropy.utils import iers
 # the default IERS url is not working: http://maia.usno.navy.mil/ser7/finals2000A.all
 #iers.conf.iers_auto_url = 'ftp://cddis.gsfc.nasa.gov/pub/products/iers/finals2000A.all'
 
+DB = loadDB()
+
 def LSRvel(ra, dec, obstime, loc='taroge4'):
     '''
     calculate the velocity correction between MLO and the LSR
@@ -360,6 +362,51 @@ def arrayConf(arr_config, nRow, rows=None, theta_rot=0.):
 
 
     return pos
+
+
+def get_tauGeo(dtarr, pos, body='sun', site='fushan6', aref=0):
+    '''
+    calculate the geometric delay of antennas toward a astro body
+
+    input:
+        dtarr:: array of datetime obj, shape=(nTime,)
+        pos:: array of (X,Y,Z) in meters, shape=(nAnt, 3)
+        body:: solar body or a source defined in YTLA_CAL.csv
+        site:: one of the sites defined in obsSite() of pyplanet.py
+        aref:: antenna id to be considered the reference antenna
+                the delay will be relative to this reference
+                Note: set aref=None if relative to the coordinates origin is preferred
+
+    output:
+        tauGeo:: geometric delay in sec, shape=(nAnt, nTime)
+    '''
+
+    b, obs = obsBody(body, time=dtarr[0], site=site, retOBS=True, DB=DB)
+
+    az = []
+    el = []
+    for ti in dtarr:
+        obs.date = ti
+        b.compute(obs)
+        az.append(b.az)
+        el.append(b.alt)
+    az = np.array(az)
+    el = np.array(el)
+    phi    = np.pi/2. - az
+    theta  = np.pi/2. - el
+    unitVec  = np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)], ndmin=2).T
+    unitVec *= -1
+
+    # BVec.shape = (nAnt, 3)
+    # unitVec.shape = (nTime, 3)
+    if (aref is None):  # relative to the coordinates origin
+        BVec = pos
+    else:               # relative to the ref ant
+        BVec = pos - pos[aref]
+    tauGeo = np.tensordot(BVec, unitVec, axes=(1,1))  # delay in meters, shape (nFPGA*nAnt, nTime)
+    tauGeo /= 2.998e8   # delay in sec.
+
+    return tauGeo
 
 
 

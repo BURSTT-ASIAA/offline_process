@@ -148,3 +148,21 @@ def toPower(x, mode='vol'):
     return p
 
 
+def rot(pos, theta):
+    '''
+    input:
+        pos.shape = (n, 3), antenna (x,y,z) in meters
+        theta = rotation angle in radian
+
+    output:
+        pos2 = new antenna positions (x,y,z) in meters
+    '''
+    mat = np.zeros((3,3))
+    mat[0,0] = np.cos(theta)
+    mat[0,1] = -np.sin(theta)
+    mat[1,0] = np.sin(theta)
+    mat[1,1] = mat[0,0]
+    mat[2,2] = 1.
+
+    return np.dot(pos,mat.T)
+
