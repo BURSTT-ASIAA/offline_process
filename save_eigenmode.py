@@ -97,7 +97,7 @@ options are:
     --rot theta_rot # the array misalignment angle in deg
                     # default to 0.0 if a config file is provided
                     # or the predefined value of the site
-                    # (fushan6 default to -1.8)
+                    # (fushan6 default to -3.0)
                     # (longtien default to +0.5)
                     # 0.0 if it is not defined yet
 
