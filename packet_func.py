@@ -363,7 +363,7 @@ def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdl
     mdict = metaRead(fh)
     blocklen = mdict['packet_number']
     nBlock = mdict['block_number']
-    print('debug:', nBlock, blocklen, meta)
+    #print('debug:', nBlock, blocklen, meta)
     BM = loadFullbitmap(fh, nBlock, blocklen=blocklen, meta=meta)
     bitmap = BM[pack0:pack0+npack]
     if (no_bitmap):

@@ -17,12 +17,12 @@ pg  = inp.pop(0)
 nChan0 = 1024
 nAnt = 16
 
-## bf64 ##
-nFPGA = 4
+## bf256 ##
+nFPGA = 16
 nBeam = nFPGA*nAnt
-nNode = 2
+nNode = 8
 nChan = nChan0//nNode
-start_off = -2          # for bf64, 400-600MHz is order=2
+start_off = 0          # for bf64, 400-600MHz is order=2
 ## bf64 ##
 
 nFrame = 1000
@@ -92,12 +92,13 @@ while (inp):
         files.append(k)
 
 
-nPack = nFPGA * nFrame
+nPack = nFPGA * nFrame // 4 ## bf256
 
 #files = glob('/burstt3/disk?/data/ring*.20240808115800.bin')
 #files = glob('./burstt2/ring*.20240807115800.bin')
 files.sort()
 print(files)
+nFile = len(files)
 epochs = filesEpoch(files, hdver=2, meta=64)
 
 stamps = []
@@ -129,39 +130,35 @@ elif (site == 'longtien'):
 
 # ## correlate 4 rows of FPGA (each server) separately
 
-spec1 = np.ma.array(np.zeros((nFPGA, nFrame, nAnt, nChan0), dtype=complex), mask=False)
+spec1 = np.ma.array(np.zeros((nFPGA, nFrame, nAnt, nChan0), dtype=complex), mask=True)
 fMHz = np.linspace(400, 800, nChan0, endpoint=False)
 
 t0 = time.time()
-for i in range(nNode):
-    ooff = start_off - i
-    start_chan = nChan * i
-    wfreq = np.arange(start_chan, start_chan+nChan)
+for i in range(nFile):
     fh0 = open(files[i], 'rb')
     mdict0 = metaRead(fh0)
-    print(mdict0)
-    data0 = loadNode(fh0, 0, nPack, order_off=ooff, verbose=1, no_bitmap=no_bitmap)
-    print('ring0', data0.shape, 'time', time.time()-t0, 'sec')
+    #print(mdict0)
+    data0, order0 = loadNode(fh0, 0, nPack, nFPGA=nFPGA, verbose=1, no_bitmap=no_bitmap, get_order=True)
+    start_chan = nChan * order0
+    wfreq = np.arange(start_chan, start_chan+nChan)
+    print('order:', order0, data0.shape, 'time', time.time()-t0, 'sec')
     spec1[:,:,:,wfreq] = data0
+    spec1[:,:,:,wfreq].mask = False
 
 
 
-inten1 = (np.abs(spec1)**2).mean(axis=3)    # shape(nFPGA, nFrame, nAnt)
+inten1 = (np.ma.abs(spec1)**2).mean(axis=3)    # shape(nFPGA, nFrame, nAnt)
 xx = np.arange(nFrame)
 ## estimate the peak beam
 inten2 = inten1.mean(axis=(0,1))    # shape(nAnt,) or nBeam
-bb = np.argmax(inten2)
+bb = np.ma.argmax(inten2)
 
-fig, sub = plt.subplots(8,8,figsize=(16,12),sharey=True, sharex=True)
+fig, sub = plt.subplots(16,16,figsize=(32,24),sharey=True, sharex=True)
 
 for row in range(nFPGA):
     for ai in range(nAnt):
-        if (ai<=7):
-            ii = row*2
-            jj = ai
-        else:
-            ii = row*2 + 1
-            jj = ai-8
+        ii = row
+        jj = ai
         ax = sub[ii,jj]
         if (ai == bb):
             color = 'r'
@@ -178,9 +175,9 @@ plt.close(fig)
 
 ## choose the peak-beam for correlation
 spec = spec1[:,:,bb]
-auto = np.abs(spec).mean(axis=1)
+auto = np.ma.abs(spec).mean(axis=1)
 nBl = nFPGA * (nFPGA-1) // 2
-coeff1 = np.zeros((nBl,nChan0), dtype=complex)
+coeff1 = np.ma.zeros((nBl,nChan0), dtype=complex)
 b = -1
 for ai in range(nFPGA-1):
     normi = auto[ai]
@@ -195,8 +192,8 @@ for ai in range(nFPGA-1):
 
 
 
-fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
-for ii in range(1,3):
+fig, sub = plt.subplots(nFPGA-1,nFPGA-1,figsize=(32,18), sharey=True, sharex=True)
+for ii in range(1,nFPGA-1):
     for jj in range(ii):
         sub[ii,jj].remove()
 
@@ -209,7 +206,7 @@ for ai in range(nFPGA-1):
         ax = sub[ii,jj]
         #tau1 = taus1[ai]-taus1[aj]
         #tau2 = taus2[ai]-taus2[aj]
-        ax.plot(fMHz, np.angle(coeff1[b]), 'b.')
+        ax.plot(fMHz, np.ma.angle(coeff1[b]), 'b.')
         #ax.plot(fMHz, np.angle(coeff1[b]*np.exp(2j*np.pi*fMHz*1e-3*tau1)), 'c.', label='SEFD*lam^2')
         ax.set_ylim(-3.3, 3.3)
         ax.grid()
@@ -226,8 +223,8 @@ plt.close(fig)
 
 
 
-fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
-for ii in range(1,3):
+fig, sub = plt.subplots(nFPGA-1,nFPGA-1,figsize=(32,18), sharey=True, sharex=True)
+for ii in range(1,nFPGA-1):
     for jj in range(ii):
         sub[ii,jj].remove()
 
@@ -238,7 +235,7 @@ for ai in range(nFPGA-1):
         jj = aj-1
         b += 1
         ax = sub[ii,jj]
-        ax.plot(fMHz, np.abs(coeff1[b]), 'b.')
+        ax.plot(fMHz, np.ma.abs(coeff1[b]), 'b.')
         ax.grid()
         
         if (ii==jj):
@@ -255,13 +252,13 @@ plt.close(fig)
 ## calculate SEFD
 flux = f410 + (fMHz-410)*(f610-f410)/400.
 
-SEFD1 = flux.reshape((1,nChan0))/np.abs(coeff1) * (1.-np.abs(coeff1))
+SEFD1 = flux.reshape((1,nChan0))/np.ma.abs(coeff1) * (1.-np.ma.abs(coeff1))
 lam = 2.998e8/(fMHz*1e6)  # meter
 mSEFD1 = SEFD1 / (fMHz/400.)**2
 
 
-fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
-for ii in range(1,3):
+fig, sub = plt.subplots(nFPGA-1,nFPGA-1,figsize=(32,18), sharey=True, sharex=True)
+for ii in range(1,nFPGA-1):
     for jj in range(ii):
         sub[ii,jj].remove()
 
@@ -297,8 +294,8 @@ scale = Aeff / (2*1.38e-23) * 1e-26
 Tsys1 = SEFD1 * scale
 
 
-fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
-for ii in range(1,3):
+fig, sub = plt.subplots(nFPGA-1,nFPGA-1,figsize=(32,18), sharey=True, sharex=True)
+for ii in range(1,nFPGA-1):
     for jj in range(ii):
         sub[ii,jj].remove()
 
@@ -326,13 +323,13 @@ plt.close(fig)
 
 ## calculate covariance and eigenmodes
 
-cov1 = np.zeros((4,4, 1024), dtype=complex)
-for i in range(4):
+cov1 = np.zeros((nFPGA,nFPGA, 1024), dtype=complex)
+for i in range(nFPGA):
     cov1[i,i] = 1.+0.j
 
 b = -1
-for i in range(3):
-    for j in range(i+1,4):
+for i in range(nFPGA-1):
+    for j in range(i+1,nFPGA):
         b += 1
         cov1[i,j] = coeff1[b]
         cov1[j,i] = coeff1[b].conjugate()
@@ -342,7 +339,7 @@ W1, V1 = Cov2Eig(cov1, ant_flag=[])
 
 fig, ax = plt.subplots(1,1,figsize=(10,6), sharex=True, sharey=True)
 
-for i in range(4):
+for i in range(nFPGA):
     ax.plot(fMHz, 10*np.log10(W1[:,i]))
 
 ax.set_xlabel('freq (MHz)')
@@ -354,14 +351,15 @@ plt.close(fig)
 
 
 
-Vref1 = V1[:,:,-1]
+#Vref1 = V1[:,:,-1]
+Vref1 = np.ma.array(V1[:,:,-1], mask=~np.isfinite(V1[:,:,-1]))
 
-fig, s2d = plt.subplots(2,2,figsize=(16,9), sharex=True, sharey=True)
+fig, s2d = plt.subplots(4,4,figsize=(32,18), sharex=True, sharey=True)
 sub = s2d.flatten()
 
 Vref1p = Vref1 / (Vref1[:,aref]/np.abs(Vref1[:,aref])).reshape((-1,1))
 
-for i in range(4):
+for i in range(nFPGA):
     ax = sub[i]
     ax.plot(fMHz, np.angle(Vref1p[:,i]), 'b.')
 
@@ -383,6 +381,7 @@ dtarr = [dt0]
 tauGeo = get_tauGeo(dtarr, pos, body=src, site=site, aref=aref)
 ns_tau = tauGeo * 1e9
 #print(ns_tau.shape)
+print('tauGeo (ns):', ns_tau)
 
 
 #ns_deg = -8 # Sun offset in NS direction, deg
@@ -405,6 +404,7 @@ dtau = medphi / (2.*np.pi) * lam.mean() / 2.998e8 * 1e9 # ns
 #print(dtau)
 VrefF = VrefC*np.exp(-2j*np.pi*dtau.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)
 tauCorr = -(peak_ns + dtau)
+#tauStr = ', '.join(['%.3f'%x for x in tauCorr])
 
 ftau = '%s/ant_delay_correct.txt'%cdir
 with open(ftau, 'w') as fh:
@@ -417,10 +417,10 @@ print("--ds '%s'"%line)
 print('')
 
 
-fig, s2d = plt.subplots(2,2,figsize=(12,8), sharex=True, sharey=True)
+fig, s2d = plt.subplots(4,4,figsize=(24,16), sharex=True, sharey=True)
 sub = s2d.flatten()
 
-for i in range(4):
+for i in range(nFPGA):
     ax = sub[i]
     ax.plot(fMHz, np.angle(VrefTau[:,i]), color='gray', marker='.', ls='none', label='rem_geo')
     ax.plot(fMHz, np.angle(VrefC[:,i]), color='orange', marker='.', ls='none', label='rem_coarse')
@@ -430,7 +430,7 @@ for i in range(4):
     if (i==0):
         ax.legend()
 
-for i in range(2):
+for i in range(4):
     s2d[i,0].set_ylabel('phase (rad)')
     s2d[1,i].set_xlabel('freq (MHz)')
 
