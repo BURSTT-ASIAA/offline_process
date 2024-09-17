@@ -5,7 +5,7 @@ import sys, os.path
 import struct
 import numpy as np
 import matplotlib.pyplot as plt
-import time
+import time, re
 from datetime import datetime
 from astropy.time import Time
 from astropy.stats import sigma_clip
@@ -695,18 +695,17 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024
     return epoch
 
 
-def beamUnpack(buf, hdlen=64, blocklen=128000, nChan=1024, ppf=2, verbose=0):
+def beamUnpack(buf, hdlen=64, nFrame=51200, nChan=1024, verbose=0):
     '''
     unpack the beam_out data
     format is 4-bit
     also assumes the order is correct
     '''
-    blockframes = blocklen//ppf
-    blockbytes = blockframes*nChan   # 2 packet per frame, 1 byte per channel
+    blockbytes = nFrame*nChan   # nChan per frame, 1 byte per channel
     nblock = len(buf) // (blockbytes+hdlen)
 
-    srate = 400e6   # samples per sec
-    prate = srate/nChan*ppf # packets per sec
+    srate = 400e6       # samples per sec
+    prate = srate/nChan # packets per sec
 
     spec = np.zeros((nblock,blockbytes), dtype=np.complex64)
     epoch = np.zeros(nblock)
@@ -740,7 +739,7 @@ def beamUnpack(buf, hdlen=64, blocklen=128000, nChan=1024, ppf=2, verbose=0):
     return spec, pcnt, epoch
 
 
-def loadBeam(fname, nStart=0, nBlock=None, blocklen=128000, nChan=1024, ppf=2, hdlen=64, verbose=0):
+def loadBeam(fname, nStart=0, nBlock=None, nFrame=51200, nChan=1024, hdlen=64, verbose=0):
     '''
     load all data from a voltage beam file (e.g. 400 blocks)
     if nBlock is specified, load the number of blocks
@@ -752,7 +751,6 @@ def loadBeam(fname, nStart=0, nBlock=None, blocklen=128000, nChan=1024, ppf=2, h
         pcnt    shape=(nBlock,), int64
         epoch   shape=(nBlock,), float
     '''
-    nFrame = blocklen//ppf
     blockByte = hdlen + nFrame*nChan
     if (nBlock is None):
         fs = os.path.getsize(fname)
@@ -768,10 +766,120 @@ def loadBeam(fname, nStart=0, nBlock=None, blocklen=128000, nChan=1024, ppf=2, h
             start = blockByte*(i+nStart)
             fh.seek(start)
             buf = fh.read(blockByte)
-            sp, pc, ep = beamUnpack(buf, blocklen=blocklen, ppf=ppf, nChan=nChan, hdlen=hdlen, verbose=verbose)
+            sp, pc, ep = beamUnpack(buf, nFrame=nFrame, nChan=nChan, hdlen=hdlen, verbose=verbose)
             spec[i] = sp
             pcnt[i] = pc[0]
             epoch[i] = ep[0]
+
+    return spec, pcnt, epoch
+
+
+def checkChain(files, nDisk=None, nFrame=51200, nChan=512, hdlen=64, verbose=False):
+    '''
+    check packet counters and block ordering for single-beam data split into multiple disks.
+    serial blocks are written to subsequent files.
+    for example, with nDisk=4:
+        block0 --> file0
+        block1 --> file1
+        block2 --> file2
+        block3 --> file3
+        block4 --> file0
+        block5 --> file1
+        ...
+
+    input:
+        files:: (nDisk) files saved in parallel (the same filename stamp)
+        nDisk:: default to the number of files
+        nFrame:: number of frames per block
+        nChan:: number of channels per frame saved in this ring buffer
+        hdlen:: header size (bytes). there is one header per block
+
+    output:
+        fbystamp, pcnt, bidx
+
+        fbystamp:: shape(nStamp, nDisk), files at each unique stamp
+        pcnt:: shape(nStamp,), the starting packet counter
+        bidx:: shape(nStamp, nTotal, 2), i.e. bidx[p][i] = [j,k] 
+                for p-th timestamp,
+                to get the i-th serial block, we should read the k-th block of j-th file
+    '''
+
+
+    byteBlock = nFrame * nChan + hdlen # 4+4i bits per channel, i.e. 1 byte/ch
+
+    tmp = []
+    for f in files:
+        tmp.append(re.sub('_f\d', '', f))
+
+    stamps = np.unique(tmp)
+
+    pcnt = []
+    bidx = []
+    fbystamp = []
+    for s in stamps:
+        tmp = []    # files of the same stamp
+        for f in files:
+            if (s in f):
+                tmp.append(f)
+        fbystamp.append(tmp)
+
+        with open(tmp[0], 'rb') as fh:
+            buf = fh.read(hdlen)
+            tup = decHeader2(buf)
+            pcnt.append(tup[0])
+
+        if (nDisk is None):
+            nDisk = len(tmp)
+
+        nTotal = 0
+        for f in tmp:
+            s = os.path.getsize(f)
+            nBlock = s//byteBlock
+            if (verbose):
+                print(f, nBlock)
+            nTotal += nBlock
+
+        sbidx = []
+        for i in range(nTotal):
+            j = i%nDisk
+            k = i//nDisk
+            sbidx.append([j,k])
+        bidx.append(sbidx)
+
+    return fbystamp, pcnt, bidx
+
+
+def loadChain(files, nBlock, startBlock=0, nDisk=None, nFrame=51200, nChan=1024, hdlen=64, verbose=False):
+    '''
+    given a list of (nDisk) files of the same unique stamp
+    load contiguous nBlock of spectrum from the startBlock
+    '''
+    byteData  = nFrame * nChan
+    byteBlock = byteData + hdlen
+
+    fbystamp, pcstamp, bidx = checkChain(files, nDisk=nDisk, nFrame=nFrame, nChan=nChan, hdlen=hdlen, verbose=verbose)
+    nStamp = len(pcstamp)
+    if (verbose):
+        print('loadChain: from', files)
+        print('unique stamps:', nStamp)
+        if (nStamp>1):
+            print('warning: use only the first unique stamp')
+
+    files0 = fbystamp[0]
+    pcstamp = pcstamp[0]
+    bidx = bidx[0]
+
+    spec  = np.zeros((nBlock, nFrame, nChan), dtype=np.complex64)
+    pcnt  = np.zeros(nBlock, dtype=np.int64)
+    epoch = np.zeros(nBlock)
+    for i in range(nBlock):
+        ii = startBlock + i
+        j, k = bidx[ii]
+
+        tmp = loadBeam(files0[j], nStart=k, nBlock=1, nFrame=nFrame, nChan=nChan, hdlen=hdlen, verbose=verbose)
+        spec[i]  = tmp[0][0]
+        pcnt[i]  = tmp[1][0]
+        epoch[i] = tmp[2][0]
 
     return spec, pcnt, epoch
 
