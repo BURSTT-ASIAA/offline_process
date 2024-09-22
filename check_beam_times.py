@@ -20,7 +20,7 @@ caldt = datetime.utcnow()
 calstr = caldt.strftime('%y%m%d')
 site = 'fushan6'
 tz = 8.             # time zone in hours from utc
-theta_rot_deg = 0.  # array misalignment angle in deg (>0 for North-toward-West)
+theta_rot_deg = None  # array misalignment angle in deg (>0 for North-toward-West)
 theta_off_inp = 0.  # offset of central beam when calibrated to actual Sun transit time data
 flim = [0.,0.]
 use_cal = False     # whether to use theta_off according to calibration
@@ -49,15 +49,15 @@ options are
     --flim FMIN FMAX
                 # set min/max freq in MHz
     --rot DEG   # array misalignment angle in degree
-                # e.g. Fushan = -3.0; Nantou = +0.5
-                # (default: %.1f)
+                # default for: Fushan = -3.0; Nantou = +0.5
+                # (otherwise: 0.0 deg)
     --off DEG   # additional beam offset of the beams in deg
                 # (if --caldate is not set, will default to theta_off=0)
                 # (if --caldate is set, the prediction will be used to counter the calibrator offset)
     --caldate YYMMDD
                 # the date when the calibration data was taken
                 # (default: today)
-''' % (pg, nAnt, sep, beam0, site, theta_rot_deg)
+''' % (pg, nAnt, sep, beam0, site)
 
 if (len(inp)<1):
     sys.exit(usage)
@@ -89,10 +89,12 @@ while(inp):
         t2str = inp.pop(0)
 
 
-if (site.lower() == 'fushan6' and theta_rot_deg==0.):
+if (site.lower() == 'fushan6' and theta_rot_deg is None):
     theta_rot_deg = -3.0
-elif (site.lower() == 'longtien' and theta_rot_deg==0.):
+elif (site.lower() == 'longtien' and theta_rot_deg is None):
     theta_rot_deg = 0.5
+elif (theta_rot_deg is None):
+    theta_rot_deg = 0.
 
 
 ## define beam angles
@@ -152,6 +154,8 @@ obs.temperature = 25    # deg C
 ha = []
 alt = []
 az  = []
+bra  = []
+bdec = []
 for i in range(nSky):
     obs.date = ut2[i]
     b.compute(obs)
@@ -162,12 +166,16 @@ for i in range(nSky):
     alt.append(b.alt)
     az.append(b.az)
     #print(tmp, b.alt, b.az)
+    bra.append(b.ra)
+    bdec.append(b.dec)
 ha = np.array(ha)
 ha_deg = ha/np.pi*180.
 #print(ha)
 #print(alt, az)
 el = np.array(alt)
 az = np.array(az)
+bra = np.array(bra)
+bdec = np.array(bdec)
 
 za = np.pi/2 - el   # zenith angle, theta
 z = np.cos(za)
@@ -270,7 +278,8 @@ for ri in range(1):
     ax.set_ylim(-0.05, 1.10)
 
     fig.text(0.02, 0.95, 'theta_rot: %.2f deg, theta_off: %.2f deg'%(theta_rot_deg, theta_off_deg))
-    fig.text(0.98, 0.95, 'cal src, date: %s, %s'%(cal, calstr), ha='right')
+    #fig.text(0.98, 0.95, 'cal src, date: %s, %s'%(cal, calstr), ha='right')
+    fig.text(0.98, 0.95, '%s ra,dec: (%s, %s)'%(src, hours(bra.mean()), degrees(bdec.mean())), ha='right')
 
     fig.autofmt_xdate()
     fig.tight_layout(rect=[0,0.03,1,0.95])
