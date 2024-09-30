@@ -61,7 +61,8 @@ def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1):
             spec[k] = ai + 1.j*aq
 
     elif (bitwidth==16):
-        arr = struct.unpack('>%dh'%(bpp//2), buf[hdlen:])
+        #arr = struct.unpack('>%dh'%(bpp//2), buf[hdlen:])  # wrong endian?
+        arr = struct.unpack('<%dh'%(bpp//2), buf[hdlen:])
         nsamp = bpp//4
         spec = np.zeros(nsamp, dtype=np.complex64)
         for k in range(bpp//4):

@@ -14,8 +14,8 @@ from packet_func import *
 
 
 bitwidth = 4    # binary bit width
-hdver    = 1    # header version
-meta     = 0    # ring buffer or file metadata length in bytes
+hdver    = 2    # header version
+meta     = 64    # ring buffer or file metadata length in bytes
 
 bpp = 8192  # bytes per packet (payload size)
 #fpgaclock = 401.066667e6
@@ -24,7 +24,8 @@ fpgaclock = 400.e6
 bytePayload = 8192      # packet payload size in bytes
 byteHeader  = 64        # packet header size in bytes
 #packBlock   = 1000000   # num of packets in a block
-packBlock   = 800000   # num of packets in a block
+#packBlock   = 800000   # num of packets in a block
+packBlock   = 102400   # num of packets in a block
 autoblock = True
 autop0    = True
 order_off = 0
@@ -56,6 +57,7 @@ options are:
     --hd VER        # header version. 1 or 2
                     # (%d)
     --meta bytes    # ring buffer of file metadata length in bytes
+                    # (%d)
     --p0 pack0      # the starting packet number
                     # disable autop0 (automatic switch block if p0=0 is bad)
     --blocklen blocklen
@@ -68,7 +70,7 @@ options are:
     --ylim YMIN YMAX    # set the plot range in y
     -v              # turn on some diagnostic info
 
-''' % (pg, npack, fpgaclock/1e6, bpp, hdver, packBlock)
+''' % (pg, npack, fpgaclock/1e6, bpp, hdver, meta, packBlock)
 
 if (len(inp) < 1):
     sys.exit(usage)
