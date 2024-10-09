@@ -23,7 +23,7 @@ nBeam = nFPGA*nAnt
 nNode = 8
 nChan = nChan0//nNode
 start_off = 0          # for bf64, 400-600MHz is order=2
-## bf64 ##
+## bf256 ##
 
 nFrame = 1000
 
@@ -36,10 +36,12 @@ src  = 'sun'
 
 sep  = 0.5          # row spacing in meters
 theta_rot_deg = 0.0     # array misalignment angle in deg
+bmax = None         # auto-determine the max-intensity beam number
 
 ## arbitrary number
 f410 = 5.0e5 # Jy
 f610 = 7.0e5 # Jy
+
 
 usage = '''
 derive delay between FPGAs from the baseband after 1st beamform (ring0, ring1 basebands)
@@ -68,6 +70,8 @@ options are:
     --interp f410 f610
                 # specify the solar flux in Jy at 410MHz and 610MHz
                 # default: f410=%.4e f610=%.4e
+    --bmax BB   # specify the beam number to analyze
+                # default: auto-determine based on integrated intensity
 ''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610)
 
 if (len(inp) < 1):
@@ -86,6 +90,8 @@ while (inp):
         src = inp.pop(0)
     elif (k == '--rot'):
         theta_rot_deg = float(inp.pop(0))
+    elif (k == '--bmax'):
+        bmax = int(inp.pop(0))
     elif (k.startswith('_')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -151,7 +157,10 @@ inten1 = (np.ma.abs(spec1)**2).mean(axis=3)    # shape(nFPGA, nFrame, nAnt)
 xx = np.arange(nFrame)
 ## estimate the peak beam
 inten2 = inten1.mean(axis=(0,1))    # shape(nAnt,) or nBeam
-bb = np.ma.argmax(inten2)
+if (bmax is None):
+    bb = np.ma.argmax(inten2)
+else:
+    bb = bmax
 
 fig, sub = plt.subplots(16,16,figsize=(32,24),sharey=True, sharex=True)
 
