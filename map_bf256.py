@@ -34,6 +34,9 @@ odir2   = 'intensity.plots'
 read_raw = False
 zlim    = None
 pts     = [1]
+do_trans = False
+
+tDelay  = 100       # animation, frame delay in ms
 
 
 usage   = '''
@@ -54,6 +57,7 @@ options are:
     --raw           # plot the raw intensity
                     # (default is to plot the normalized intensity)
     --both          # plot both raw and normalized intensities
+    --trans         # transpose intensity from baseband
 
 ''' % (pg, nSum, blocklen)
 
@@ -84,6 +88,8 @@ while (inp):
         pts = [0]
     elif (k=='--both'):
         pts = [0, 1]
+    elif (k == '--trans'):
+        do_trans = True
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -146,6 +152,9 @@ for j in range(nDir):
                 winSec = getData(ofile, 'winSec')
                 attrs = getAttrs(ofile)
                 epoch0 = attrs.get('unix_utc_open')
+                if (do_trans):
+                    arrInt = arrInt.transpose((0,3,1,2))
+                    arrNInt = arrNInt.transpose((0,3,1,2))
     else:
         read_raw = True
 
@@ -251,7 +260,7 @@ def update(i):
     #cb = plt.colorbar(s,ax=ax)
 
 
-ani = animation.FuncAnimation(fig=fig, func=update, frames=nWin, interval=200)
+ani = animation.FuncAnimation(fig=fig, func=update, frames=nWin, interval=tDelay)
 ani.save(gif, writer='pillow')
 plt.close(fig)
 

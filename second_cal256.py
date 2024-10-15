@@ -259,7 +259,7 @@ plt.close(fig)
 
 
 ## calculate SEFD
-flux = f410 + (fMHz-410)*(f610-f410)/400.
+flux = f410 + (fMHz-410)*(f610-f410)/200.
 
 SEFD1 = flux.reshape((1,nChan0))/np.ma.abs(coeff1) * (1.-np.ma.abs(coeff1))
 lam = 2.998e8/(fMHz*1e6)  # meter
