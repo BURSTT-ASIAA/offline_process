@@ -48,17 +48,32 @@ def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1):
         clk, pko = tmp
 
     if (bitwidth==4):
-        arr = struct.unpack('>%dB'%bpp, buf[hdlen:])
         spec = np.zeros(bpp, dtype=np.complex64)
+        # when reading 2 channels (= 2 bytes), 
+        # the right 8-bit is even channel (e.g. ch0)
+        # the left 8-bit is odd channel (e.g. ch1)
+        #arr = struct.unpack('<%dH'%(bpp//2), buf[hdlen:])
+        arr = struct.unpack('<%dB'%(bpp), buf[hdlen:])
         for k in range(bpp):
+            #bit16 = arr[k]
+            #bit8 = (bit16 & 0x00ff)         # for even channel
             bit8 = arr[k]
             bit4_i = bit8 & 0x0f
             ai = toSigned(bit4_i, 4)
-            #aq = toSigned(bit4_i, 4)
             bit4_q = (bit8 & 0xf0) >> 4
             aq = toSigned(bit4_q, 4)
-            #ai = toSigned(bit4_q, 4)
-            spec[k] = ai + 1.j*aq
+            #spec[2*k] = ai + 1.j*aq
+            if (k%2==0):
+                spec[k+1] = ai + 1j*aq
+            else:
+                spec[k-1] = ai + 1j*aq
+
+            #bit8 = (bit16 & 0x00ff) >> 8    # for odd channel
+            #bit4_i = bit8 & 0x0f
+            #ai = toSigned(bit4_i, 4)
+            #bit4_q = (bit8 & 0xf0) >> 4
+            #aq = toSigned(bit4_q, 4)
+            #spec[2*k+1] = ai + 1.j*aq
 
     elif (bitwidth==16):
         #arr = struct.unpack('>%dh'%(bpp//2), buf[hdlen:])  # wrong endian?
