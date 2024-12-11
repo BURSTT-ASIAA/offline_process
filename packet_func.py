@@ -39,7 +39,7 @@ def headerUnpack(header, order_off=0, verbose=0, hdver=1):
         pko = header[36] + order_off
     return clk, pko
 
-def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1):
+def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1, unswap=False):
     header = buf[:hdlen]
     tmp = headerUnpack(header, order_off=order_off, hdver=hdver)
     if (tmp is None):
@@ -62,11 +62,13 @@ def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1):
             ai = toSigned(bit4_i, 4)
             bit4_q = (bit8 & 0xf0) >> 4
             aq = toSigned(bit4_q, 4)
-            #spec[2*k] = ai + 1.j*aq
-            if (k%2==0):
-                spec[k+1] = ai + 1j*aq
-            else:
-                spec[k-1] = ai + 1j*aq
+            if (unswap):    # use this when reading old bf data, no swapping
+                spec[k] = ai + 1.j*aq
+            else:           # for new bf data, swap even/odd channels
+                if (k%2==0):
+                    spec[k+1] = ai + 1j*aq
+                else:
+                    spec[k-1] = ai + 1j*aq
 
             #bit8 = (bit16 & 0x00ff) >> 8    # for odd channel
             #bit4_i = bit8 & 0x0f
@@ -93,7 +95,7 @@ def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1):
     return clk, pko, spec
 
 
-def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1, meta=0):
+def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1, meta=0, unswap=False):
     '''
     load npack blocks of binary data from the open filehandle
     starting from pack0. each block is of pack_len bytes.
@@ -129,7 +131,7 @@ def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1,
     order = np.ma.array(np.zeros(npack, dtype=int), mask=False)
     for i in range(npack):
         buf = fh.read(pack_len)
-        tmp = packetUnpack(buf, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver)
+        tmp = packetUnpack(buf, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver, unswap=unswap)
         if (tmp is None):
             data0.mask[i] = True
             clock.mask[i] = True
@@ -288,7 +290,7 @@ def formSpec(data0, clock, order, ppf, nAnt=16, grp=2, nChan=1024, bitmap=None, 
     return data_tick, antSpec
 
 
-def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=1, meta=0, blocklen=128000):
+def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=1, meta=0, blocklen=128000, unswap=False):
     '''
     a wrapper of loadBatch + formSpec
     input:
@@ -347,7 +349,7 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
         grp = 1
         ppf = 8
 
-    data0, clock, order = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver, meta=meta)
+    data0, clock, order = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver, meta=meta, unswap=unswap)
     tmp = formSpec(data0, clock, order, ppf, nAnt=nAnt, grp=grp, bitmap=bitmap, verbose=verbose)
 
     if (tmp is not None):
@@ -358,7 +360,7 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
     return data_tick, antSpec
 
 
-def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=2, meta=64, nFPGA=4, no_bitmap=False, get_order=False):
+def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=2, meta=64, nFPGA=4, no_bitmap=False, get_order=False, unswap=False):
     '''
     load the ring buffer file of one node
 
@@ -387,7 +389,7 @@ def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdl
     #print('debug:', bitmap[2])
 
 
-    data0, clock0, order0 = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver, meta=meta)
+    data0, clock0, order0 = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver, meta=meta, unswap=unswap)
     #print('debug:', data0.shape)
     #print('debug:', data0[2])
     antSpec = formSpec2(data0, nFPGA=nFPGA, nChan=nChan, nStack=nStack, bitmap=bitmap)

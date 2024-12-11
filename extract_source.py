@@ -12,7 +12,7 @@ home = os.environ.get('HOME')
 bindir = '%s/local/bin' % home
 if (host == 'coma18'):
     bindir = '%s/analysis_burstt/local/bin' % home
-if (hostname.startswith('frblab') or hostname.startswith('burstt')):
+if (hostname.startswith('frblab') or hostname.startswith('burstt') or hostname=='frederici'):
     bindir = '/data/kylin/bin'
 
 fcat0 = '%s/YTLA_CAL.csv' % bindir
