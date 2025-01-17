@@ -283,7 +283,7 @@ for ri in range(1):
 
     fig.autofmt_xdate()
     fig.tight_layout(rect=[0,0.03,1,0.95])
-    fig.suptitle('%s @ %s, %s, beam0=%d'%(src,site,t1str, beam0))
+    fig.suptitle('%s @ %s, %s, beam0=%.3f'%(src,site,t1str, beam0))
     png = '%s.UT%s.%s.angles.png'%(site, t1str, src)
     fig.savefig(png)
     plt.close(fig)
