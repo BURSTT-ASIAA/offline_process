@@ -336,7 +336,7 @@ def arrayConf(arr_config, nRow, rows=None, theta_rot=0.):
 
     else:
         if (os.path.isfile(arr_config)):
-            pos = np.loadtxt(arr_config)
+            pos = np.loadtxt(arr_config, usecols=(1,2,3))
         else:
             print('error opening aconf file: %s'%arr_config)
             return None

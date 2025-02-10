@@ -113,6 +113,7 @@ for f in files:
     i = fb.find('ring')
     j = fb.find('.bin')
     tmp = fb[i+6:j]
+    tmp = tmp.split('.')[0]
     stamps.append(tmp)
 nStamp = len(np.unique(stamps))
 if (nStamp == 1):
