@@ -14,6 +14,9 @@ from util_func import *
 inp = sys.argv[0:]
 pg  = inp.pop(0)
 
+flim = [400., 800.] 
+
+
 nChan0 = 1024
 nAnt = 16
 
@@ -22,7 +25,7 @@ nFPGA = 4
 nBeam = nFPGA*nAnt
 nNode = 2
 nChan = nChan0//nNode
-start_off = -2          # for bf64, 400-600MHz is order=2
+start_off = -2          # for bf64, 400-600MHz is order=2; use =0 for 300-700 MHz 
 ## bf64 ##
 
 nFrame = 1000
@@ -68,7 +71,10 @@ options are:
     --interp f410 f610
                 # specify the solar flux in Jy at 410MHz and 610MHz
                 # default: f410=%.4e f610=%.4e
-''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610)
+    --ooff <order>  # packet order correction, (default: %d); please use 0 for 300-700 MHz
+    --flim fmin fmax    # set the spectrum min/max freq in MHz
+                        # (default: [%.1f, %.1f] MHz )
+''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610, start_off, flim[0], flim[1])
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -86,6 +92,18 @@ while (inp):
         src = inp.pop(0)
     elif (k == '--rot'):
         theta_rot_deg = float(inp.pop(0))
+    elif (k == '--interp'): # SH 2024/10/09 added
+        f410 = float(inp.pop(0))
+        f610 = float(inp.pop(0))
+        print(f'solar radio flux at (410, 610) MHz = (%.2e, %.2e) Jy'%(f410, f610) )
+    elif (k == '--flim'): # SH 2024/10/09 added
+        flim[0] = float(inp.pop(0))
+        flim[1] = float(inp.pop(0))
+        print(f'\t-->set frequency range to [%.3f, %.3f] MHz'%(flim[0], flim[1]) )
+    elif (k == '--ooff'): # SH 2024/10/09 added
+        ooff = int(inp.pop(0))
+        print(f'\t--> set packet order correction to [%d]'%(ooff) )
+
     elif (k.startswith('_')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -104,7 +122,9 @@ stamps = []
 for f in files:
     fb = os.path.basename(f)
     i = fb.find('ring')
-    j = fb.find('.bin')
+    # SH: 2025/01  new suffix  .o{0,1}.bin
+    #j = fb.find('.bin')
+    j = fb.find('.o')
     tmp = fb[i+6:j]
     stamps.append(tmp)
 nStamp = len(np.unique(stamps))
@@ -130,11 +150,14 @@ elif (site == 'longtien'):
 # ## correlate 4 rows of FPGA (each server) separately
 
 spec1 = np.ma.array(np.zeros((nFPGA, nFrame, nAnt, nChan0), dtype=complex), mask=False)
-fMHz = np.linspace(400, 800, nChan0, endpoint=False)
-
+# variable freq range
+#fMHz = np.linspace(400, 800, nChan0, endpoint=False)
+fMHz = np.linspace( flim[0], flim[1], nChan0, endpoint=False)
+BW_Hz = (flim[1] - flim[0]) * 1.e6  # for delay correction
 t0 = time.time()
 for i in range(nNode):
     ooff = start_off - i
+    # this fills 1st and 2nd half of the spectrum, so freq range not needed
     start_chan = nChan * i
     wfreq = np.arange(start_chan, start_chan+nChan)
     fh0 = open(files[i], 'rb')
@@ -145,15 +168,17 @@ for i in range(nNode):
     spec1[:,:,:,wfreq] = data0
 
 
-
+# find the time when intensity peaks; 
+# ### SH: to-do the following take mean over freq may be biased by RFI; use median or apply RFI mask may be better
 inten1 = (np.abs(spec1)**2).mean(axis=3)    # shape(nFPGA, nFrame, nAnt)
 xx = np.arange(nFrame)
-## estimate the peak beam
+## estimate the peak beam (along 1st beamforming direction, i.e., roughly E-W)
 inten2 = inten1.mean(axis=(0,1))    # shape(nAnt,) or nBeam
 bb = np.argmax(inten2)
 
 fig, sub = plt.subplots(8,8,figsize=(16,12),sharey=True, sharex=True)
 
+# show the mean intensity vs time frame for each beam
 for row in range(nFPGA):
     for ai in range(nAnt):
         if (ai<=7):
@@ -177,26 +202,31 @@ plt.close(fig)
 
 
 ## choose the peak-beam for correlation
-spec = spec1[:,:,bb]
-auto = np.abs(spec).mean(axis=1)
+spec = spec1[:,:,bb]    # nFPGA * nFrame * nChan0
+# auto = np.abs(spec).mean(axis=1)  #SH: unused; average over all frames
 nBl = nFPGA * (nFPGA-1) // 2
+nComb   = nFPGA-1   # number of independent combination
+
 coeff1 = np.zeros((nBl,nChan0), dtype=complex)
 b = -1
 for ai in range(nFPGA-1):
-    normi = auto[ai]
+    #normi = auto[ai]   #  unused
     for aj in range(ai+1, nFPGA):
-        normj = auto[aj]
+        #normj = auto[aj]   # unused
         b += 1
         normij = np.ma.abs(spec[ai])*np.ma.abs(spec[aj])
-        cross = (spec[ai] * spec[aj].conjugate()/normij)
+        cross = (spec[ai] * spec[aj].conjugate()/normij)    # nFrame * nChan0
         cross[normij==0.] = 0j
-        coeff1[b] = cross.mean(axis=0)
+        coeff1[b] = cross.mean(axis=0) # over all frames
         
 
 
 
-fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
-for ii in range(1,3):
+#fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
+fig, sub = plt.subplots(nComb,nComb,figsize=(16,9), sharey=True, sharex=True)
+# remove lower off-diagonal plots
+#for ii in range(1,3):
+for ii in range(1,nComb):
     for jj in range(ii):
         sub[ii,jj].remove()
 
@@ -225,9 +255,10 @@ plt.close(fig)
 
 
 
-
-fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
-for ii in range(1,3):
+#fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
+fig, sub = plt.subplots(nComb,nComb,figsize=(16,9), sharey=True, sharex=True)
+#for ii in range(1,3):
+for ii in range(1,nComb):
     for jj in range(ii):
         sub[ii,jj].remove()
 
@@ -253,15 +284,23 @@ plt.close(fig)
 
 
 ## calculate SEFD
-flux = f410 + (fMHz-410)*(f610-f410)/400.
+# SH: bug?  y = m (x-x0) + y0    610-410 = 200. ;  Q. do we need unpolarized  correction factor 1/2 ?
+# linear interpolation is reasonably good 
+
+#flux = f410 + (fMHz-410)*(f610-f410)/400.
+flux = f410 + (fMHz-410)*(f610-f410)/(610.-410.)
 
 SEFD1 = flux.reshape((1,nChan0))/np.abs(coeff1) * (1.-np.abs(coeff1))
 lam = 2.998e8/(fMHz*1e6)  # meter
-mSEFD1 = SEFD1 / (fMHz/400.)**2
+# SH: scaled relative to SEFD at 400 MHz
+freq_ref = 400. # MHz, to avoid confusion
+#mSEFD1 = SEFD1 / (fMHz/400.)**2    
+mSEFD1 = SEFD1 / (fMHz/freq_ref)**2    
 
-
-fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
-for ii in range(1,3):
+#fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
+fig, sub = plt.subplots(nComb,nComb,figsize=(16,9), sharey=True, sharex=True)
+#for ii in range(1,3):
+for ii in range(1,nComb):
     for jj in range(ii):
         sub[ii,jj].remove()
 
@@ -289,16 +328,20 @@ plt.close(fig)
 
 
 ## convert to Tsys
+# SH: single antenna gain;  MobileMark LPDA;  ### should use (16-ch) beamformed antenna gain
 G0 = 6.0 # dB
 gain = 10.**(G0/10.)
 
+# SH: this assume the target is at boresight;  SEFD = 2*k*Tsys / Aeff
 Aeff = lam**2*gain/(4.*np.pi)  # meter^2
 scale = Aeff / (2*1.38e-23) * 1e-26
 Tsys1 = SEFD1 * scale
 
 
-fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
-for ii in range(1,3):
+#fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
+fig, sub = plt.subplots(nComb,nComb,figsize=(16,9), sharey=True, sharex=True)
+#for ii in range(1,3):
+for ii in range(1,nComb):
     for jj in range(ii):
         sub[ii,jj].remove()
 
@@ -326,23 +369,30 @@ plt.close(fig)
 
 ## calculate covariance and eigenmodes
 
-cov1 = np.zeros((4,4, 1024), dtype=complex)
-for i in range(4):
+# SH: replace value by variables
+#cov1 = np.zeros((4,4, 1024), dtype=complex)
+cov1 = np.zeros(( nFPGA, nFPGA, nChan0), dtype=complex)
+
+#for i in range(4):
+for i in range(nFPGA):
     cov1[i,i] = 1.+0.j
 
 b = -1
-for i in range(3):
-    for j in range(i+1,4):
+#for i in range(3):
+#    for j in range(i+1,4):
+for i in range(nFPGA-1):
+    for j in range(i+1,nFPGA):
         b += 1
         cov1[i,j] = coeff1[b]
         cov1[j,i] = coeff1[b].conjugate()
 
-W1, V1 = Cov2Eig(cov1, ant_flag=[])
+W1, V1 = Cov2Eig(cov1, ant_flag=[]) # W1: (nChan, nFPGA) ; V1: nChan0, nFPGA, nFPGA
 
 
 fig, ax = plt.subplots(1,1,figsize=(10,6), sharex=True, sharey=True)
 
-for i in range(4):
+#for i in range(4):
+for i in range(nFPGA):
     ax.plot(fMHz, 10*np.log10(W1[:,i]))
 
 ax.set_xlabel('freq (MHz)')
@@ -353,15 +403,17 @@ plt.close(fig)
 
 
 
-
+# SH: leading eigen vector (nChan0, nFPGA), supposedly from the cal source
 Vref1 = V1[:,:,-1]
 
 fig, s2d = plt.subplots(2,2,figsize=(16,9), sharex=True, sharey=True)
 sub = s2d.flatten()
 
+# SH: phase relative to the ref one
 Vref1p = Vref1 / (Vref1[:,aref]/np.abs(Vref1[:,aref])).reshape((-1,1))
 
-for i in range(4):
+#for i in range(4):
+for i in range(nFPGA):
     ax = sub[i]
     ax.plot(fMHz, np.angle(Vref1p[:,i]), 'b.')
 
@@ -375,7 +427,7 @@ plt.close(fig)
 print('array misalignment (deg):', theta_rot_deg)
 theta_rot = theta_rot_deg / 180. * np.pi
 pos0 = np.zeros((nFPGA,3))
-pos0[:,1] = np.arange(nFPGA)*sep
+pos0[:,1] = np.arange(nFPGA)*sep    # SH: y to North
 pos = rot(pos0, theta_rot)
 #print(pos0, pos)    # debug
 
@@ -390,16 +442,23 @@ ns_tau = tauGeo * 1e9
 #ns_tau = pos * ns_rad / 2.998e8 * 1e9 # delay in ns
 
 # correct for geometric delay
-VrefTau = Vref1p * np.exp(-2j*np.pi*ns_tau.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)
+VrefTau = Vref1p * np.exp(-2j*np.pi*ns_tau.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)   # (nChan0, nFPGA)
+
+
+# find delay between FPGAs;  SH: this uses periodicity of wrapped phase to find the delay:  2*pi* Df * tau = 2*pi;  does phase of RFI bias the result?
 FTVref = np.fft.fft(VrefTau, n=int(nChan0*pad), axis=0)
-FTVref = np.fft.fftshift(FTVref, axes=0)
-peak_lag = np.abs(FTVref).argmax(axis=0) - int(pad*nChan0/2)
+FTVref = np.fft.fftshift(FTVref, axes=0)    # SH: shift 0 to center -> delay range [0, 2t] -> [-t,t]
+
+peak_lag = np.abs(FTVref).argmax(axis=0) - int(pad*nChan0/2)    # SH: index at peak relative to center; index corresponds to a delay with interval =  1/(nChan0*pad * df) = 1/(BW*pad)
 #print(peak_lag)
-peak_ns = peak_lag * 1e9/400e6 / pad # convert to ns
-#print(peak_ns)
+#peak_ns = peak_lag * 1e9/400e6 / pad # convert to ns
+peak_ns = peak_lag * 1e9 / BW_Hz / pad # convert to ns
+print(peak_ns)
+
 # coarse delay correction
 VrefC = VrefTau*np.exp(-2j*np.pi*peak_ns.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)
-# fine delay correction
+
+# fine delay correction ; SH: phase is supposedly near 0, e.g., residual from phase response of Rx
 medphi = np.median(np.angle(VrefC), axis=0)
 dtau = medphi / (2.*np.pi) * lam.mean() / 2.998e8 * 1e9 # ns
 #print(dtau)
@@ -420,7 +479,8 @@ print('')
 fig, s2d = plt.subplots(2,2,figsize=(12,8), sharex=True, sharey=True)
 sub = s2d.flatten()
 
-for i in range(4):
+#for i in range(4):
+for i in range(nFPGA):
     ax = sub[i]
     ax.plot(fMHz, np.angle(VrefTau[:,i]), color='gray', marker='.', ls='none', label='rem_geo')
     ax.plot(fMHz, np.angle(VrefC[:,i]), color='orange', marker='.', ls='none', label='rem_coarse')

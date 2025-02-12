@@ -22,11 +22,11 @@ nBeam   = nRow*nAnt
 nChan0  = 1024
 nChan   = 512       # for 64-ant
 flim    = [400., 800.]
-freq0    = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
 
 blocklen = 51200    # number of frames per block
 nSum    = 400       # integration number
 
+bFlipEWBeam = False # SH: for same convention with other plots
 verbose = 0
 
 odir2   = 'intensity.plots'
@@ -53,8 +53,10 @@ options are:
     --raw           # plot the raw intensity
                     # (default is to plot the normalized intensity)
     --both          # plot both raw and normalized intensities
-
-''' % (pg, nSum, blocklen)
+    --flim fmin fmax    # set the spectrum min/max freq in MHz
+                        # (default: [%.1f, %.1f] MHz )
+    --flipEW        # display E-W beams in  opposite order: westernmost beam shown at right most panel, which get illuminated by source the latest
+''' % (pg, nSum, blocklen, flim[0], flim[1])
 
 
 if (len(inp)<1):
@@ -79,10 +81,15 @@ while (inp):
         rings.append(ring_id)
     elif (k=='-v'):
         verbose=1
+    elif (k=='--flipEW'):
+        bFlipEWBeam = True
     elif (k=='--raw'):
         pts = [0]
     elif (k=='--both'):
         pts = [0, 1]
+    elif (k == '--flim'): 
+        flim[0] = float(inp.pop(0))
+        flim[1] = float(inp.pop(0))
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -96,11 +103,15 @@ print(nTime, nElem, nByte)
 
 nDir = len(dirs)
 
-
+# define here for adjustable range
+freq0    = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
 arrInts  = []
 arrNInts = []
 freqs    = []
 tsecs    = []
+
+if (not os.path.isdir(odir2)):
+    call('mkdir %s'%odir2, shell=True)
 for j in range(nDir):
     idir = dirs[j]
     ring_id = rings[j]
@@ -110,10 +121,14 @@ for j in range(nDir):
     freq = freq0[i0:i0+nChan]
     freqs.append(freq)
 
+    print('input dir: %s  ring name: [%s]'%(idir, ring_name))
+
     if (ring_name in idir):
-        ofile = idir + '.inth5'
+        #ofile = idir + '.inth5' # SH: this causes hidden and unnamed output ring0/.inth5
+        ofile = '%s/%s.inth5'%(odir2, ring_name)    # SH: unify
     else:
-        ofile = '%s.%s.inth5'%(idir, ring_name)
+        #ofile = '%s.%s.inth5'%(idir, ring_name)  # SH: typo, output becomes hidden
+        ofile = '%s/%s.inth5'%(odir2, ring_name)     # SH: unify output folder
     print('output to:', ofile)
     odir = '%s.plots'%ofile
 
@@ -203,11 +218,10 @@ loc0 = epoch0 + 3600*8  # convert back to local time
 if (nDir==1):
     odir2 = odir
 
-if (not os.path.isdir(odir2)):
-    call('mkdir %s'%odir2, shell=True)
 
 ## 64 beams in one plot
-png = '%s/norm.64beams.png' % (odir2)
+png = '%s/norm.64beams%s.png' % (odir2, '-flipEW' if bFlipEWBeam else '')
+
 #fig, sub = plt.subplots(4,16,figsize=(32,8), sharex=True, sharey=True)
 fig, tmp = plt.subplots(8,16,figsize=(32,12), sharex=True, height_ratios=[2,1,2,1,2,1,2,1])
 sub  = tmp[0::2]
@@ -232,11 +246,20 @@ for kk in range(nDir):
 
     for j in range(nRow):
         for ai in range(nAnt):
-            ax = sub[nRow-1-j, ai]
+
+            if bFlipEWBeam:
+                colID = nAnt-1-ai
+            else:
+                colID = ai
+            #ax = sub[nRow-1-j, ai]
+            ax = sub[nRow-1-j, colID]   # SH
             ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
 
             prof = arrNInt[:,:,j,ai].mean(axis=1) # avg in freq, each node separately
-            ax2 = sub2[nRow-1-j, ai]
+            #prof = arrNInt[:,:,j,ai].median(axis=1) # avg in freq, each node separately; SH: RFI
+
+            ax2 = sub2[nRow-1-j, colID]    # 0th row (South) at bottom for intuitive display; 0th column (westernmost beam) at right
+            #ax2 = sub2[nRow-1-j, ai]    # 0th row (South) at bottom for intuitive display
             ax2.plot(winDT, prof)
             ax2.set_ylim(vmin, vmax)
 

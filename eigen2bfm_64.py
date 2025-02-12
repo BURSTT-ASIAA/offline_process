@@ -82,7 +82,10 @@ syntax:
     --beq <med_BEQ>     # set target median value of the BFM parameters
                         # range: (0, 127), default: %.0f
 
-''' % (pg, sep, theta_off, beam0, ', '.join(map(str,asel)), medBEQ)
+    --flim fmin fmax    # set the spectrum min/max freq in MHz
+                        # (default: [%.1f, %.1f] MHz )
+
+''' % (pg, sep, theta_off, beam0, ', '.join(map(str,asel)), medBEQ, flim[0], flim[1])
 
 if (len(inp)<1):
     sys.exit(usage)
@@ -99,7 +102,7 @@ while (inp):
     elif (k == '--coeff'):
         use_coeff = True
     elif (k == '--beam0'):
-        beam0 = int(inp.pop(0))
+        beam0 = float(inp.pop(0)) # changed to float
     elif (k == '--aconf'):
         aconf = inp.pop(0)
     elif (k == '--sep'):
@@ -118,6 +121,9 @@ while (inp):
         asel = [int(x) for x in tmp.split()]
         if (len(asel) != 4):
             sys.exit('error getting the vis_sel: %s'%tmp)
+    elif (k == '--flim'): 
+        flim[0] = float(inp.pop(0))
+        flim[1] = float(inp.pop(0))
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:

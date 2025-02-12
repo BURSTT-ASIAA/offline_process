@@ -106,13 +106,14 @@ options are:
     --pool nPool
                 # number of threads used to parallel process makeCov
                 # (default: %d)
-
+    --flim fmin fmax    # set the spectrum min/max freq in MHz
+                        # (default: [%.1f, %.1f] MHz )
     (special)
     --no-bitmap # ignore the bitmap
     --4bit      # read 4-bit data
     --ooff OFF  # offset added to the packet_order
 
-''' % (pg, nPack, p0, blocklen, nBlock, fout, hdver, meta, arr_config, body, site, nPool)
+''' % (pg, nPack, p0, blocklen, nBlock, fout, hdver, meta, arr_config, body, site, nPool, flim[0], flim[1])
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -166,6 +167,10 @@ while (inp):
         redo = True
     elif (k == '--pool'):
         nPool = int(inp.pop(0))
+    elif (k == '--flim'): 
+        flim[0] = float(inp.pop(0))
+        flim[1] = float(inp.pop(0))
+        print(f'\tset frequency range to [%.3f, %.3f] MHz'%(flim[0], flim[1]) )
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
