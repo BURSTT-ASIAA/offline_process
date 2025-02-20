@@ -36,17 +36,21 @@ order_off= 0
 meta    = 64
 verbose = 0
 
-odir2   = 'intensity.plots'
-read_raw = False
+odir2   = None
+read_raw = True
 zlim    = None
 no_bitmap = False
+redo    = False
 
 
 usage   = '''
 plot amplitude of the spectrum as a function of frequency and time
 
 syntax:
-    %s -r <ring_id> <dir> [options]
+    %s <dirs> [options]
+
+all .bin files are loaded from the provided dirs
+the packet order is automatically assigned from packet header
 
 options are:
     -n nPack        # number of packets to load (%d)
@@ -70,7 +74,6 @@ if (len(inp)<1):
     sys.exit(usage)
 
 dirs  = []
-rings = []
 while (inp):
     k = inp.pop(0)
     if (k=='-n'):
@@ -90,16 +93,11 @@ while (inp):
     elif (k=='-o'):
         odir2 = inp.pop(0)
     elif (k=='--redo'):
-        read_raw = True
+        redo = True
     elif (k=='--zlim'):
         zmin = float(inp.pop(0))
         zmax = float(inp.pop(0))
         zlim = [zmin, zmax]
-    elif (k=='-r'):
-        ring_id = int(inp.pop(0))
-        idir = inp.pop(0)
-        dirs.append(idir)
-        rings.append(ring_id)
     elif (k=='--no-bitmap'):
         no_bitmap = True
     elif (k=='-v'):
@@ -107,45 +105,53 @@ while (inp):
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
-        sys.exit('extra argument: %s'%k)
+        dirs.append(k)
 
 
 
 nDir = len(dirs)
+if (meta == 64):
+    hdver = 2
+
+# for bf256
+total_order = 8
+freqs = freq0.reshape(total_order, nChan)
 
 
-arrInts  = []
-arrNInts = []
-freqs    = []
-tsecs    = []
-for j in range(nDir):
-    idir = dirs[j]
-    ring_id = rings[j]
-    ring_name = 'ring%d'%(ring_id%2)
+if (nDir == 1):
+    oname = dirs[0].rstrip('/')
+    fh5  = '%s.inth5'%oname
+    odir = '%s.plots'%oname
+else:
+    fh5  = 'intensity.inth5'
+    odir = 'intensity.plots'
 
-    i0 = nChan*ring_id
-    freq = freq0[i0:i0+nChan]
-    freqs.append(freq)
 
-    if (ring_name in idir):
-        ofile = idir + '.inth5'
-    else:
-        ofile = '%s.%s.inth5'%(idir, ring_name)
-    print('output to:', ofile)
-    odir = '%s.plots'%ofile
+if (os.path.isfile(fh5)):
+    tmp = getData(fh5, 'arrInt')
+    if (tmp is not None):
+        read_raw = False
+        arrInt = tmp
+        arrNInt = getData(fh5, 'arrNInt')
+        freq = getData(fh5, 'freq')
+        tsecs = getData(fh5, 'tsecs')
+        attrs = getAttrs(fh5)
+        loc0 = attrs['unix_utc_open'] + 3600*8
+        winDT = Time(loc0+tsecs, format='unix').to_datetime()
 
-    adoneh5(ofile, freq, 'freq')
+if (redo):
+    read_raw = True
 
-    files   = glob('%s/%s.*.bin'%(idir,ring_name))
-    files.sort()
-    nFile   = len(files)
-    if (False):
-        nFile = 10
-        files = files[:nFile]
-    print('nFile:', nFile)
+if (read_raw):
+    tsecs = []
+    allInts  = []
+    allNInts = []
+    for o in range(total_order):
+        allInts.append([])
+        allNInts.append([])
 
     attrs   = {}
-    attrs['idir'] = idir
+    attrs['dirs'] = dirs
     attrs['p0'] = p0
     attrs['nPack'] = nPack
     attrs['nBlock'] = nBlock
@@ -153,87 +159,95 @@ for j in range(nDir):
     attrs['bitwidth'] = bitwidth
     attrs['hdver'] = hdver
     attrs['order_off'] = order_off
-    attrs['ring_id'] = ring_id
     attrs['nChan'] = nChan
+    attrs['nChan0'] = nChan0
+    attrs['nAnt'] = nAnt
     attrs['nRow'] = nRow
 
-    # intensity array
-    if (os.path.isfile(ofile)):
-        tmp = getData(ofile, 'intensity')
-        if (tmp is None):
-            read_raw = True
-        else:
-            if (not read_raw):
-                arrInt = tmp
-                arrNInt = getData(ofile, 'norm.intensity')
-                winSec = getData(ofile, 'winSec')
-                attrs = getAttrs(ofile)
-                epoch0 = attrs.get('unix_utc_open')
-    else:
-        read_raw = True
+    epoch0 = None
+    for j in range(nDir):
+        idir = dirs[j]
 
-    if (read_raw):
-        arrInt  = np.ma.array(np.zeros((nFile, nRow, nAnt, nChan)), mask=True)  # masked by default
-        winSec  = np.zeros(nFile)
-        dt0 = None
+        files   = glob('%s/*.bin'%idir)
+        files.sort()
+        nFile   = len(files)
+        if (False):
+            nFile = 16
+            files = files[:nFile]
+            print(files)
+        print(idir, 'nFile:', nFile)
+
+        fileOrder = np.zeros(nFile)
+        fileInt  = np.ma.array(np.zeros((nFile, nRow, nAnt, nChan)), mask=True)  # masked by default
+        ep0, fileSec  = filesEpoch(files, hdver=2, meta=64, split=True)
+        if (epoch0 is None):
+            epoch0 = ep0
+        attrs['unix_utc_open'] = epoch0
+
         for i in range(nFile):
             fbin = files[i]
             print('reading: %s (%d/%d)'%(fbin, i+1,nFile))
-            ftime = os.path.basename(fbin).split('.')[1]
-            if (len(ftime)==10):
-                fstr = '23'+ftime
-            elif (len(ftime)==14):
-                fstr = ftime[2:]
-            dt = datetime.strptime(fstr, '%y%m%d%H%M%S')
-            if (dt0 is None):
-                dt0 = dt
-                epoch0 = Time(dt0, format='datetime').to_value('unix')
-                epoch0 -= 3600*8    # convert to UTC
-                attrs['unix_utc_open'] = epoch0
-            winSec[i] = (dt-dt0).total_seconds()
 
             fh = open(fbin, 'rb')
-            #tick, spec = loadSpec(fh, p0, nPack, bitmap=bitmap, bitwidth=bitwidth, order_off=order_off, hdver=hdver, verbose=1, meta=meta)
+            mt = fh.read(64)
+            hd = fh.read(64)
+            tmp = decHeader2(hd)
+            od = tmp[4]
+            fileOrder[i] = od
+
             # spec.shape = (nFrame, nAnt, nChan)
             ringSpec = loadNode(fh, p0, nPack, order_off=order_off, verbose=verbose, meta=meta, nFPGA=nRow, no_bitmap=no_bitmap)
             # ringSpec.shape = (nRow, nFrame, nAnt, nChan)
             fh.close()
 
             aspec = np.ma.abs(ringSpec).mean(axis=1)
-            arrInt[i] = aspec   # shape: (nFile, nAnt, nChan)
-            arrInt.mask[i] = aspec.mask
+            fileInt[i] = aspec   # shape: (nFile, nAnt, nChan)
+            fileInt.mask[i] = aspec.mask
 
+        for o in range(total_order):
+            if (len(tsecs)==0):
+                tsecs = fileSec[fileOrder==o]
+                print(tsecs)
+            if (len(allInts[o])==0):    # use array if none exists
+                allInts[o] = fileInt[fileOrder==o]
+            else:   # concatenate if array already exists
+                allInts[o] = np.concatenate([allInts[o], fileInt(fileOrder==o)], axis=0)
+                if (len(tsecs) < allInts[o].shape[0]):
+                    tsecs = np.concatenate([tsecs, fileSec[fileOrder==o]], axis=0)
 
-        adoneh5(ofile, arrInt, 'intensity')
-        adoneh5(ofile, winSec, 'winSec')
+    putAttrs(fh5, attrs)
 
-        putAttrs(ofile, attrs)
+    ## bandpass normalization
+    for o in range(total_order):
+        len_order = len(allInts[o])
+        print('order', o, 'len:', len_order)
+        if (len_order > 0):
+            allNInts[o] = allInts[o] / allInts[o].mean(axis=0)
+            name = 'order%d'%o
 
-        ## bandpass normalization
-        arrNInt = arrInt / arrInt.mean(axis=0)
-        adoneh5(ofile, arrNInt, 'norm.intensity')
+    use_order = np.unique(fileOrder).astype(int)
+    print(use_order)
 
-    arrInts.append(arrInt)
-    arrNInts.append(arrNInt)
-    print(j, arrInt.shape, arrNInt.shape)
-    tsecs.append(winSec)
+    arrInt = np.concatenate([allInts[o] for o in use_order], axis=3)
+    arrNInt = np.concatenate([allNInts[o] for o in use_order], axis=3)
+    freq = np.concatenate(freqs[use_order], axis=0)
+    print('combine', arrInt.shape, arrNInt.shape, freq.shape)
+    adoneh5(fh5, arrInt, 'arrInt')
+    adoneh5(fh5, arrNInt, 'arrNInt')
 
-arrInt = np.concatenate(arrInts, axis=3)
-arrNInt = np.concatenate(arrNInts, axis=3)
-freq = np.concatenate(freqs, axis=0)
-print('combine', arrInt.shape, arrNInt.shape)
+    print('epoch0:', epoch0)
+    loc0 = epoch0 + 3600*8  # convert back to local time
+    winDT = Time(loc0+tsecs, format='unix').to_datetime()
+    adoneh5(fh5, freq, 'freq')
+    adoneh5(fh5, tsecs, 'tsecs')
 
-print('epoch0:', epoch0)
-loc0 = epoch0 + 3600*8  # convert back to local time
-winDT = Time(loc0+winSec, format='unix').to_datetime()
-#matDT = mdates.date2num(winDT)
 #X, Y = np.meshgrid(winSec, freq, indexing='xy')
 #X, Y = np.meshgrid(winDT, freq, indexing='xy')
 X = winDT
 Y = freq
 #print('X:', X)
 
-if (nDir==1):
+if (odir2 is None):
     odir2 = odir
 
 if (not os.path.isdir(odir2)):
@@ -250,11 +264,6 @@ sub  = tmp[0::2]
 sub2 = tmp[1::2]
 
 
-winSec = tsecs[0]
-winDT = Time(loc0+winSec, format='unix').to_datetime()
-X = winDT
-Y = freq
-
 if (zlim is None):
     vmin = arrNInt.min()
     vmax = arrNInt.max()
@@ -266,6 +275,8 @@ print('zmin,zmax:', vmin, vmax)
 for j in range(nRow):
     for ai in range(nAnt):
         ax = sub[nRow-1-j, ai]
+        if (j==0 and ai==0):
+            print(X.shape, Y.shape, arrNInt[:,j,ai].shape)
         ax.pcolormesh(X,Y,arrNInt[:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
 
         prof = arrNInt[:,j,ai].mean(axis=1) # avg in freq, each node separately
@@ -276,63 +287,12 @@ for j in range(nRow):
 fig.autofmt_xdate()
 fig.tight_layout(rect=[0,0.03,1,0.95])
 fig.subplots_adjust(wspace=0, hspace=0)
-fig.suptitle(odir2)
+fig.suptitle('%s, %s'%(os.getcwd(), odir2))
 fig.savefig(png)
 plt.close(fig)
 
 
 
 
-
-## skip the plots for individual rows
-sys.exit()
-
-for j in range(nRow):
-    ## plotting
-    for pt in range(1,2):
-        if (pt==0):
-            png = '%s/raw.row%d.png' % (odir2,j)
-            arr = arrInt[:,j]
-        elif (pt==1):
-            png = '%s/norm.row%d.png' % (odir2,j)
-            arr = arrNInt[:,j]
-        print('plotting:', png, '...')
-
-        if (zlim is None):
-            vmin = arr.min()
-            vmax = arr.max()
-        else:
-            vmin = zlim[0]
-            vmax = zlim[1]
-        print('zmin,zmax:', vmin, vmax)
-
-
-        fig, s2d = plt.subplots(8,4,figsize=(16,12), sharex=True, height_ratios=[2,1,2,1,2,1,2,1])
-        sub = s2d[0::2,:].flatten()
-        sub2 = s2d[1::2,:].flatten()
-        for ii in range(4):
-            s2d[ii*2,0].set_ylabel('freq (MHz)')
-            s2d[ii*2+1,0].set_ylabel('amp')
-            s2d[7,ii].set_xlabel('time (sec)')
-
-
-        for ai in range(nAnt):
-            ax = sub[ai]
-            #ax.imshow(arrInt[:,ai].T, origin='lower', aspect='auto')
-            ax.pcolormesh(X,Y,arr[:,ai].T, vmin=vmin, vmax=vmax, shading='auto')
-
-            ax2 = sub2[ai]
-            y2d = arr[:,ai].T
-            y1d = y2d.mean(axis=0)
-            ax2.plot(winDT, y1d)
-            ax2.set_ylim(vmin, vmax)
-            ax2.grid()
-
-
-        fig.autofmt_xdate()
-        fig.tight_layout(rect=[0,0.03,1,0.95])
-        fig.subplots_adjust(wspace=0, hspace=0)
-        fig.savefig(png)
-        plt.close(fig)
 
 

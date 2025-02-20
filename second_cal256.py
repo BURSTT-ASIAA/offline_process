@@ -154,10 +154,10 @@ for i in range(nFile):
 
 
 
-inten1 = (np.ma.abs(spec1)**2).mean(axis=3)    # shape(nFPGA, nFrame, nAnt)
+inten1 = np.mean(np.ma.abs(spec1)**2, axis=3)    # shape(nFPGA, nFrame, nAnt)
 xx = np.arange(nFrame)
 ## estimate the peak beam
-inten2 = inten1.mean(axis=(0,1))    # shape(nAnt,) or nBeam
+inten2 = np.mean(inten1, axis=(0,1))    # shape(nAnt,) or nBeam
 if (bmax is None):
     bb = np.ma.argmax(inten2)
 else:

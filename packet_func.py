@@ -653,7 +653,7 @@ def decHeader2(buf, ip=False, verbose=True):
     return tmp
 
 
-def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024, ppf=2):
+def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024, ppf=2, split=False):
     '''
     extract epoch time from a list of files
 
@@ -665,7 +665,8 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024
     [old] epoch_second+pps_count+2
     [new] epoch_second + 2 + pack_cnt/(frate*ppf)
     where frate is the frame per second
-    ppf is packet per frame
+    ppf is packet per frame; 2 is valid for bf16, bf64, bf256, even 16bit
+    split: whether to split epoch0 from time array
     '''
 
     if (isinstance(files, (list, np.ndarray))):
@@ -679,6 +680,7 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024
 
     if (hdver==2):
         prate = frate*ppf
+        unix0 = None
         epoch = []
         for i in range(nFile):
             with open(files[i], 'rb') as fh:
@@ -686,9 +688,14 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024
                 hd = fh.read(hdlen)
             tmp = decHeader2(hd)
             #ep = tmp[2]+tmp[3]+2
-            ep = tmp[2] + 2 + tmp[0]/prate
+            #ep = tmp[2] + 2 + (tmp[0]-tmp[4])/prate
+            if unix0 is None:
+                unix0 = tmp[2]
+            ep = 2 + (tmp[0]-tmp[4])/prate
             epoch.append(ep)
         epoch = np.array(epoch)
+        unix0 += epoch[0]
+        epoch -= epoch[0]
 
     elif (hdver==1):
         ftime0 = None
@@ -708,9 +715,12 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024
 
             dt = (ftime - ftime0).total_seconds()
             tsec.append(dt)
-        epoch = np.array(tsec) + unix0
+        epoch = np.array(tsec)
 
-    return epoch
+    if (split):
+        return unix0, epoch
+    else:
+        return epoch+unix0
 
 
 def beamUnpack(buf, hdlen=64, nFrame=51200, nChan=1024, verbose=0):
