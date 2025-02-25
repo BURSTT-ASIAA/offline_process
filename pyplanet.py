@@ -381,17 +381,8 @@ def get_tauGeo(dtarr, pos, body='sun', site='fushan6', aref=0):
         tauGeo:: geometric delay in sec, shape=(nAnt, nTime)
     '''
 
-    b, obs = obsBody(body, time=dtarr[0], site=site, retOBS=True, DB=DB)
+    az, el = getAzEl(dtarr, body=body, site=site)
 
-    az = []
-    el = []
-    for ti in dtarr:
-        obs.date = ti
-        b.compute(obs)
-        az.append(b.az)
-        el.append(b.alt)
-    az = np.array(az)
-    el = np.array(el)
     phi    = np.pi/2. - az
     theta  = np.pi/2. - el
     unitVec  = np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)], ndmin=2).T
@@ -408,6 +399,34 @@ def get_tauGeo(dtarr, pos, body='sun', site='fushan6', aref=0):
 
     return tauGeo
 
+
+def getAzEl(dtarr, body='sun', site='fushan6'):
+    '''
+    calculate az,el of a source at a given site
+
+    input:
+        dtarr:: array of datetime obj, shape=(nTime,)
+        pos:: array of (X,Y,Z) in meters, shape=(nAnt, 3)
+        body:: solar body or a source defined in YTLA_CAL.csv
+        site:: one of the sites defined in obsSite() of pyplanet.py
+
+    output:
+        az, el:: array in radian, shape=(nTime,)
+    '''
+
+    b, obs = obsBody(body, time=dtarr[0], site=site, retOBS=True, DB=DB)
+
+    az = []
+    el = []
+    for ti in dtarr:
+        obs.date = ti
+        b.compute(obs)
+        az.append(b.az)
+        el.append(b.alt)
+    az = np.array(az)
+    el = np.array(el)
+
+    return az, el
 
 
 if (__name__ == '__main__'):
