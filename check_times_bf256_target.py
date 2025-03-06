@@ -154,12 +154,16 @@ if sitename.lower() in ['fus', 'fushan']:
     sitename = 'Fushan'
 if sitename.lower() in ['ltn', 'longtien', 'nantou']:
     sitename = 'Longtien'
+if sitename.lower() in ['grn', 'lyudao']:
+    sitename = 'Lyudao'
 
 if (theta_rot_deg is None):
     if (sitename.lower() == 'fushan'):
         theta_rot_deg = -3.0
     elif (sitename.lower() == 'longtien'):
         theta_rot_deg = +0.5
+    elif (sitename.lower() == 'lyudao'):
+        theta_rot_deg = 0.
     else:
         theta_rot_deg = 0.
 
@@ -187,12 +191,17 @@ tmp = {}
 if sitename.lower() == 'fushan':
     tmp['LAT'] = '24:45:23.41411'
     tmp['LON'] = '121:34:53.93382'
-    tmp['ELV']  = 642.9882
+    tmp['ELV'] = 642.9882
 
 if sitename.lower() == 'longtien':
     tmp['LAT'] = '23:42:52.49877'
     tmp['LON'] = '120:49:27.77502'
     tmp['ELV'] = 878.7997
+
+if sitename.lower() == 'lyudao':
+    tmp['LAT'] = '+22.6750'
+    tmp['LON'] = '121.5007'
+    tmp['ELV'] = 15.0
 
 if len(tmp.keys()) == 0:
     sys.exit('check sitename: %s' % sitename)
@@ -454,9 +463,9 @@ with open(f_out_txt, 'w') as f:
     f.write('#%s transit at %s (local time)\n#\n' % (targetname, t_trans))
     f.write('#start_time end_time beam_id\n')
 
-i = 15
+i = nBeam1-1
 max_bid = np.argmax(np.max(a1[:,i], axis=1))
-print('i=15', max_bid, a1[max_bid,i].max())
+print('i=%d'%nBeam1, max_bid, a1[max_bid,i].max())
 j = np.where(a1[max_bid,i,:] > 0.15*a1[max_bid,i].max())[0][0]
 b_start = ((ut2+timedelta(hours=8))[j] + timedelta(seconds=30)).strftime('%Y%m%d_%H%M')#.strftime('%Y%m%d %H:%M')
 
@@ -470,24 +479,24 @@ for i in range(nBeam1-1, 0, -1):
     y2.mask = True; y2.mask[j1:j2] = False
     j = np.ma.argmin(np.ma.abs(y1-y2))
     b_end = ((ut2+timedelta(hours=8))[j] + timedelta(seconds=30)).strftime('%Y%m%d_%H%M')#.strftime('%Y%m%d %H:%M')
-    print('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*16+i, max_bid, i, b_start, b_end))
+    print('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, b_start, b_end))
     #with open(f_out_txt, 'a') as f:
     #    f.write('Beam %03d (row %d, beam %02d): %s - %s\n' % (max_bid*16+i, max_bid, i, b_start, b_end))
     #print('%s %s %d' % (b_start, b_end, max_bid*16+i))
     with open(f_out_txt, 'a') as f:
-        f.write('%s %s %d\n' % (b_start, b_end, max_bid*16+i))
+        f.write('%s %s %d\n' % (b_start, b_end, max_bid*nBeam1+i))
     b_start = b_end
 
 i = 0
 max_bid = np.argmax(np.max(a1[:,i], axis=1))
 j = np.where(a1[max_bid,i,:] > 0.15*a1[max_bid,i].max())[0][-1]
 b_end = ((ut2+timedelta(hours=8))[j] + timedelta(seconds=30)).strftime('%Y%m%d_%H%M')#.strftime('%Y%m%d %H:%M')
-print('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*16+i, max_bid, i, b_start, b_end))
+print('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, b_start, b_end))
 #with open(f_out_txt, 'a') as f:
 #    f.write('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*16+i, max_bid, i, b_start, b_end))
 #print('%s %s %d' % (b_start, b_end, max_bid*16+i))
 with open(f_out_txt, 'a') as f:
-    f.write('%s %s %d' % (b_start, b_end, max_bid*16+i))
+    f.write('%s %s %d' % (b_start, b_end, max_bid*nBeam1+i))
 
 
 ax.axvline(x=t_trans, color='limegreen', lw=10, zorder=0, alpha=0.3)
