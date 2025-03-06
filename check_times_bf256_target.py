@@ -206,6 +206,10 @@ if sitename.lower() == 'lyudao':
 if len(tmp.keys()) == 0:
     sys.exit('check sitename: %s' % sitename)
 
+if sitename.lower() in ['ltn', 'longtien', 'nantou']:
+    sep2 = 2
+    print('change sep2 to 2')
+
 obs = ephem.Observer()
 obs.date = obsdt
 obs.epoch = '2000'
@@ -299,11 +303,8 @@ BFM1 *= 127/scale ## ? not sure
 if (sign==-1):
     BFM1 = np.flip(BFM1, axis=1)
 
-if sitename.lower() in ['ltn', 'longtien', 'nantou']:
-    sep2 = 2
-    print('change sep2 to 2')
-
-sin_theta_m = sin_theta_m2_ori * (sep2/0.5)
+#sin_theta_m = sin_theta_m2_ori * (sep2/0.5)
+sin_theta_m = sin_theta_m2_ori
 
 BFM2 = np.zeros((nBeam2,nRow,nChan), dtype=complex)
 
