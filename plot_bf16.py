@@ -10,6 +10,7 @@ from subprocess import call
 from datetime import datetime
 from astropy.time import Time
 
+import matplotlib.dates as mdates
 
 
 inp = sys.argv[0:]
@@ -75,7 +76,7 @@ while (inp):
         zmin = float(inp.pop(0))
         zmax = float(inp.pop(0))
         zlim = [zmin, zmax]
-    elif (k=='-r'):
+    elif (k=='-f'):
         ring_id = int(inp.pop(0))
         idir = inp.pop(0)
         dirs.append(idir)
@@ -244,7 +245,7 @@ for kk in range(nDir):
             ax = sub[b] #sub[nRow-1-j, ai]
             ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
 
-            prof = np.median(arrNInt[:,:,j,ai], axis=1) # avg in freq, each node separately
+            prof = np.ma.median(arrNInt[:,:,j,ai], axis=1) # avg in freq, each node separately
             ax2 = sub2[b] #sub2[nRow-1-j, ai]
             ax2.plot(winDT, prof)
             ax2.set_ylim(vmin, vmax)
@@ -255,6 +256,26 @@ fig.subplots_adjust(wspace=0, hspace=0)
 fig.suptitle(odir2)
 fig.savefig(png)
 plt.close(fig)
+
+
+## another figure for spec.avg intensity vs time
+fig,ax = plt.subplots(1,1,figsize=(12,4))
+for j in range(nRow):
+    for ai in range(nAnt):
+        prof = np.ma.median(arrNInt[:,:,j,ai], axis=1) # avg in freq, each node separately
+        ax.plot(winDT, prof, label='%d'%ai)
+ax.set_xlabel('time')
+ax.set_ylabel('norm.intensity')
+ax.legend()
+ax.xaxis.set_minor_locator(mdates.MinuteLocator(byminute=np.arange(0,60,5)))
+ax.grid(which='both')
+ax.tick_params(which='major', length=8)
+
+fig.autofmt_xdate()
+fig.tight_layout(rect=[0,0.03,1,0.95])
+fig.savefig('%s/prof_vs_time.png'%odir2)
+plt.close(fig)
+
 sys.exit('finished')
 
 
