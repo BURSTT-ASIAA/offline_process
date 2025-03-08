@@ -23,10 +23,15 @@ nBeam   = nRow*nAnt
 nChan0  = 1024
 nChan   = 1024       # for 16-ant
 flim    = [400., 800.]
-freq0    = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
+freq0   = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
 
 blocklen = 51200    # number of frames per block
 nSum    = 400       # integration number
+frate   = 400e6/1024
+prate   = frate*2
+
+winBlock = 1        # number of blocks per window to integrate
+sepBlock = 400      # separation between windows in blocks
 
 verbose = 0
 
@@ -50,6 +55,8 @@ options are:
                     # (default: %d)
     --frame FRAME   # number of frames per block
                     # (default: %d)
+    --sep sepBlock  # separation between window in blocks
+    --win winBlock  # integration window size in blocks
     -o <odir>       # specify an output dir
     --redo          # force reading raw data
     --zlim zmin zmax# set the min/max color scale
@@ -76,6 +83,12 @@ while (inp):
         zmin = float(inp.pop(0))
         zmax = float(inp.pop(0))
         zlim = [zmin, zmax]
+    elif (k=='--sep'):
+        sepBlock = int(inp.pop(0))
+    elif (k=='--win'):
+        winBlock = int(inp.pop(0))
+    elif (k=='--frame'):
+        blocklen = int(inp.pop(0))
     elif (k=='-f'):
         ring_id = int(inp.pop(0))
         idir = inp.pop(0)
@@ -129,15 +142,34 @@ for j in range(nDir):
     files.sort()
     nFile   = len(files)
     if (False):
-        nFile = 10
+        nFile = 3
         files = files[:nFile]
     print('nFile:', nFile)
+
+    nWin = 0
+    fnWins = []
+    for f in files:
+        s = os.path.getsize(f)
+        fBlock = s//nByte # num of blocks in this file
+        fWin = fBlock//sepBlock # number of windows in this file
+        if (fWin == 0):
+            fWin = 1
+        fnWins.append(fWin)
+        nWin += fWin
+        #print(f, fBlock, fWin)
 
     attrs   = {}
     attrs['idir'] = idir
     attrs['ring_id'] = ring_id
     attrs['nChan'] = nChan
     attrs['nRow'] = nRow
+    attrs['nFile'] = nFile
+    attrs['nWin'] = nWin
+    attrs['sepBlock'] = sepBlock
+    attrs['winBlock'] = winBlock
+    attrs['nFrame'] = blocklen
+    attrs['nSum'] = nSum
+    attrs['nTime'] = nTime
 
     # intensity array
     if (os.path.isfile(ofile)):
@@ -156,26 +188,39 @@ for j in range(nDir):
 
     if (read_raw):
         #arrInt  = np.ma.array(np.zeros((nFile, nRow, nAnt, nChan)), mask=False)  # unmasked by default
-        arrInt  = np.ma.array(np.zeros((nFile, nChan, nRow, nAnt)), mask=False)  # unmasked by default
-        fepoch  = filesEpoch(files, hdver=2, meta=0)
-        epoch0  = fepoch[0] # UTC
-        attrs['unix_utc_open'] = epoch0
-        winSec  = fepoch - epoch0
+        arrInt  = np.ma.array(np.zeros((nWin, nChan, nRow, nAnt)), mask=False)  # unmasked by default
+        #fepoch  = filesEpoch(files, hdver=2, meta=0)
+        #epoch0  = fepoch[0] # UTC
+        #attrs['unix_utc_open'] = epoch0
+        #winSec  = fepoch - epoch0
+        winEpoch = np.zeros(nWin)
+        iWin = -1
         for i in range(nFile):
             fbin = files[i]
             print('reading: %s (%d/%d)'%(fbin, i+1,nFile))
-
             fh = open(fbin, 'rb')
-            # read 1 block, sum128
-            fh.seek(64) # skip header
-            buf = fh.read(nByte)
-            data = np.frombuffer(buf, dtype=np.float16).reshape((nTime,nChan,nRow,nAnt))
-            arrInt[i] = data.mean(axis=0)
-            #data = np.frombuffer(buf, dtype=np.uint16).reshape((nTime,nChan,nRow,nAnt))
-            #data = np.frombuffer(buf, dtype=np.float16).reshape((nTime,nChan,nAnt,nRow))
-            #arrInt[i] = data.mean(axis=0).transpose((1,2,0))
-            #arrInt[i] = data.mean(axis=0).transpose((2,1,0))
+
+            for j in range(fnWins[i]):
+                iWin += 1
+                print('file:',i,'win:',j,'win2:',iWin)
+                for k in range(winBlock):
+                    p = (64 + nByte)*(j*sepBlock + k)
+                    fh.seek(p)
+                    hd = fh.read(64)
+                    if (k == 0):
+                        tmp = decHeader2(hd)
+                        winEpoch[iWin] = tmp[2] + 2 + (tmp[0]-tmp[4])/prate # UTC
+                    buf = fh.read(nByte)
+                    data = np.frombuffer(buf, dtype=np.float16).reshape((nTime,nChan,nRow,nAnt))
+                    arrInt[iWin] += data.mean(axis=0)
+                arrInt[iWin] /= winBlock
+
             fh.close()
+
+        epoch0 = winEpoch[0]
+        attrs['unix_utc_open'] = epoch0
+        winSec = winEpoch - epoch0
+        
 
         adoneh5(ofile, arrInt, 'intensity')
         adoneh5(ofile, winSec, 'winSec')
