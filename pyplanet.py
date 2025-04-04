@@ -184,6 +184,10 @@ def obsSite(site='fushan6'):
             obs.long         = '99.216560'
             obs.lat         = '+18.863546'
             obs.elevation   = 390.0
+        elif (site == 'ogasawara'): # SH: 2024/12/23  GCP #2
+            obs.long         = '142.216932'
+            obs.lat         = '+27.092032'
+            obs.elevation   = 261.459
         else:
             obs = None
 

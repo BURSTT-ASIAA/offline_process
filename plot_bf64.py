@@ -34,6 +34,7 @@ read_raw = False
 zlim    = None
 pts     = [1]
 
+prefix  = 'intensity_'
 
 usage   = '''
 plot amplitude of the spectrum as a function of frequency and time
@@ -56,7 +57,8 @@ options are:
     --flim fmin fmax    # set the spectrum min/max freq in MHz
                         # (default: [%.1f, %.1f] MHz )
     --flipEW        # display E-W beams in  opposite order: westernmost beam shown at right most panel, which get illuminated by source the latest
-''' % (pg, nSum, blocklen, flim[0], flim[1])
+    --prefix <name> # prefix of file name (default: %s)
+''' % (pg, nSum, blocklen, flim[0], flim[1], prefix)
 
 
 if (len(inp)<1):
@@ -90,6 +92,9 @@ while (inp):
     elif (k == '--flim'): 
         flim[0] = float(inp.pop(0))
         flim[1] = float(inp.pop(0))
+    elif (k == '--prefix'):
+        prefix = inp.pop(0)
+        print('prefix of file name [%s]'%prefix )
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -134,7 +139,9 @@ for j in range(nDir):
 
     adoneh5(ofile, freq, 'freq')
 
-    files   = glob('%s/intensity_%s_*'%(idir,ring_name))
+    #files   = glob('%s/intensity_%s_*'%(idir,ring_name))
+    files   = glob('%s/%s%s_*'%(idir, prefix, ring_name))
+
     files.sort()
     nFile   = len(files)
     if (False):
