@@ -1,4 +1,16 @@
 ## add the following to your $HOME/.bashrc
 export PATH1=$PATH
-alias bda="export PATH=$PATH:/data/kylin/bin; export PYTHONPATH=/data/kylin/bin:/data/kylin/integral:$PYTHONPATH; . mod_activate.sh bursttda; export LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/2023.0.0/linux/compiler/lib/intel64_lin:$LD_LIBRARY_PATH"
+alias bda="export PATH=$PATH:/data/kylin/bin; export PYTHONPATH=/data/kylin/bin:/data/kylin/integral:$PYTHONPATH; . mod_activate.sh bursttda; export LD_LIBRARY_PATH=/opt/intel/oneapi/compiler/latest/linux/compiler/lib/intel64_lin:$LD_LIBRARY_PATH"
 alias bda_off="conda deactivate; module rm python/miniconda3; export PATH=$PATH1; unset PYTHONPATH"
+
+myterms () {
+	# create 3 terminals and connect them to a server
+	if [ -z $1 ]; then
+		CMD=''
+	else
+		CMD="-- ssh $1"
+	fi
+	gnome-terminal --geometry 105x24+0+0 $CMD
+	gnome-terminal --geometry 105x24+0-0 $CMD
+	gnome-terminal --geometry 95x40-0-0 $CMD
+}
