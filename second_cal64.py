@@ -30,6 +30,8 @@ nFrame = 1000
 no_bitmap = False
 aref = 0
 pad  = 32   # fft padding factor; for dividing the lag sample to finer resolution
+flim = [400., 800.] # data freq range in MHz
+chlim = None        # FT delay finding channel range
 
 site = 'fushan6'
 src  = 'sun'
@@ -63,12 +65,17 @@ options are:
                 #       for fushan6 (-3.0) and longtien (+0.5)
     --site SITE # site name for the calculation
                 # default: %s
+    --aref AREF # specify the reference FPGA
+                # default: %d
+    --flim min max  # data freq range in MHz
+                # default: %.0f %.0f
+    --chlim min max # FT delay fitting channel range
     --src SRC   # source to calculate the geometric delay
                 # default: %s
     --interp f410 f610
                 # specify the solar flux in Jy at 410MHz and 610MHz
                 # default: f410=%.4e f610=%.4e
-''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610)
+''' % (pg, nFrame, sep, theta_rot_deg, site, aref, flim[0], flim[1], src, f410, f610)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -82,6 +89,15 @@ while (inp):
         sep = float(inp.pop(0))
     elif (k == '--site'):
         site = inp.pop(0)
+    elif (k == '--aref'):
+        aref = int(inp.pop(0))
+    elif (k == '--flim'):
+        flim[0] = float(inp.pop(0))
+        flim[1] = float(inp.pop(0))
+    elif (k == '--chlim'):
+        ch1 = int(inp.pop(0))
+        ch2 = int(inp.pop(0))
+        chlim = [ch1, ch2]
     elif (k == '--src'):
         src = inp.pop(0)
     elif (k == '--rot'):
@@ -104,8 +120,8 @@ stamps = []
 for f in files:
     fb = os.path.basename(f)
     i = fb.find('ring')
-    j = fb.find('.bin')
-    tmp = fb[i+6:j]
+    #j = fb.find('.bin')
+    tmp = fb[i+6:i+20]
     stamps.append(tmp)
 nStamp = len(np.unique(stamps))
 if (nStamp == 1):
@@ -114,6 +130,7 @@ if (nStamp == 1):
     epoch0 = epochs[0]
     dt0 = Time(epoch0, format='unix').to_datetime()
 else:
+    print(stamps)
     sys.exit('more than one timestamp found. abort!')
 
 cdir = 'cal_%s.check'%stamp_name
@@ -125,12 +142,16 @@ if (site == 'fushan6'):
 elif (site == 'longtien'):
     theta_rot_deg = 0.5
     sep = 2.0
+elif (site == 'lyudao'):
+    theta_rot_deg = 1.7
+    sep = 1.0
 
+print('site:', site, 'sep:', sep, 'rot:', theta_rot_deg)
 
 # ## correlate 4 rows of FPGA (each server) separately
 
 spec1 = np.ma.array(np.zeros((nFPGA, nFrame, nAnt, nChan0), dtype=complex), mask=False)
-fMHz = np.linspace(400, 800, nChan0, endpoint=False)
+fMHz = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
 
 t0 = time.time()
 for i in range(nNode):
@@ -141,7 +162,7 @@ for i in range(nNode):
     mdict0 = metaRead(fh0)
     print(mdict0)
     data0 = loadNode(fh0, 0, nPack, order_off=ooff, verbose=1, no_bitmap=no_bitmap)
-    print('ring0', data0.shape, 'time', time.time()-t0, 'sec')
+    print('ring%d'%i, data0.shape, 'time', time.time()-t0, 'sec')
     spec1[:,:,:,wfreq] = data0
 
 
@@ -347,6 +368,7 @@ for i in range(4):
 
 ax.set_xlabel('freq (MHz)')
 ax.set_ylabel('W (dB)')
+ax.set_ylim(-15, 10)
 
 fig.savefig('%s/eigenvalue.png'%cdir)
 plt.close(fig)
@@ -360,6 +382,7 @@ fig, s2d = plt.subplots(2,2,figsize=(16,9), sharex=True, sharey=True)
 sub = s2d.flatten()
 
 Vref1p = Vref1 / (Vref1[:,aref]/np.abs(Vref1[:,aref])).reshape((-1,1))
+Vref1p[np.isnan(Vref1p)] = 0.j
 
 for i in range(4):
     ax = sub[i]
@@ -382,7 +405,7 @@ pos = rot(pos0, theta_rot)
 dtarr = [dt0]
 tauGeo = get_tauGeo(dtarr, pos, body=src, site=site, aref=aref)
 ns_tau = tauGeo * 1e9
-#print(ns_tau.shape)
+print(ns_tau.shape, ns_tau)
 
 
 #ns_deg = -8 # Sun offset in NS direction, deg
@@ -390,20 +413,34 @@ ns_tau = tauGeo * 1e9
 #ns_tau = pos * ns_rad / 2.998e8 * 1e9 # delay in ns
 
 # correct for geometric delay
-VrefTau = Vref1p * np.exp(-2j*np.pi*ns_tau.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)
-FTVref = np.fft.fft(VrefTau, n=int(nChan0*pad), axis=0)
+VrefTau = Vref1p * np.exp(-2j*np.pi*ns_tau.reshape(1,-1)*fMHz.reshape(-1,1)*1e-3)
+if (chlim is None):
+    ch1 = 0
+    ch2 = nChan0
+else:
+    ch1 = chlim[0]
+    ch2 = chlim[1]
+nChan1 = ch2-ch1
+VrefTau = VrefTau[ch1:ch2]
+print(Vref1p.shape, VrefTau.shape)
+print(np.angle(Vref1p[:10,0]))
+print(np.angle(VrefTau[:10,0]))
+
+#VrefTau -= VrefTau.mean(axis=0, keepdims=True)
+FTVref = np.fft.fft(VrefTau, n=int(nChan1*pad), axis=0)
 FTVref = np.fft.fftshift(FTVref, axes=0)
-peak_lag = np.abs(FTVref).argmax(axis=0) - int(pad*nChan0/2)
-#print(peak_lag)
-peak_ns = peak_lag * 1e9/400e6 / pad # convert to ns
-#print(peak_ns)
+print(np.angle(VrefTau[:10,0]))
+peak_lag = np.abs(FTVref).argmax(axis=0) - int(pad*nChan1/2)
+print(peak_lag)
+peak_ns = peak_lag * 1e9/(400e6*nChan1/nChan0*pad) # convert to ns
+print(peak_ns)
 # coarse delay correction
-VrefC = VrefTau*np.exp(-2j*np.pi*peak_ns.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)
+VrefC = VrefTau*np.exp(-2j*np.pi*peak_ns.reshape((1,-1))*fMHz[ch1:ch2].reshape((-1,1))*1e-3)
 # fine delay correction
 medphi = np.median(np.angle(VrefC), axis=0)
-dtau = medphi / (2.*np.pi) * lam.mean() / 2.998e8 * 1e9 # ns
+dtau = medphi / (2.*np.pi) * lam[ch1:ch2].mean() / 2.998e8 * 1e9 # ns
 #print(dtau)
-VrefF = VrefC*np.exp(-2j*np.pi*dtau.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)
+VrefF = VrefC*np.exp(-2j*np.pi*dtau.reshape((1,-1))*fMHz[ch1:ch2].reshape((-1,1))*1e-3)
 tauCorr = -(peak_ns + dtau)
 
 ftau = '%s/ant_delay_correct.txt'%cdir
@@ -422,9 +459,10 @@ sub = s2d.flatten()
 
 for i in range(4):
     ax = sub[i]
-    ax.plot(fMHz, np.angle(VrefTau[:,i]), color='gray', marker='.', ls='none', label='rem_geo')
-    ax.plot(fMHz, np.angle(VrefC[:,i]), color='orange', marker='.', ls='none', label='rem_coarse')
-    ax.plot(fMHz, np.angle(VrefF[:,i]), color='b', marker='.', ls='none', label='rem_fine')
+    ax.plot(fMHz[ch1:ch2], np.angle(Vref1p[ch1:ch2,i]), color='black', marker='.', ls='none', label='raw')
+    ax.plot(fMHz[ch1:ch2], np.angle(VrefTau[:,i]), color='gray', marker='.', ls='none', label='rem_geo')
+    ax.plot(fMHz[ch1:ch2], np.angle(VrefC[:,i]), color='orange', marker='.', ls='none', label='rem_coarse')
+    ax.plot(fMHz[ch1:ch2], np.angle(VrefF[:,i]), color='b', marker='.', ls='none', label='rem_fine')
     ax.text(0.05, 0.90, 'tau: %.3f'%tauCorr[i], transform=ax.transAxes)
     ax.grid()
     if (i==0):
