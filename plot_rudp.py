@@ -29,6 +29,7 @@ packBlock   = 102400   # num of packets in a block
 autoblock = True
 autop0    = True
 order_off = 0
+flim    = [400., 800.]  # freq limit in MHz
 
 
 npack  = 1000
@@ -67,10 +68,11 @@ options are:
     --no-ab         # disable auto-determine of nBlock (auto-block)
     --ooff OFF      # offset the packet_order
     --no-bitmap     # ignore the bitmap
-    --ylim YMIN YMAX    # set the plot range in y
+    --flim FMIN FMAX    # set the min/max frequency in MHz (%.1f, %.1f)
+    --ylim YMIN YMAX    # set the plot range in y (default: auto)
     -v              # turn on some diagnostic info
 
-''' % (pg, npack, fpgaclock/1e6, bpp, hdver, meta, packBlock)
+''' % (pg, npack, fpgaclock/1e6, bpp, hdver, meta, packBlock, flim[0], flim[1])
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -105,6 +107,10 @@ while inp:
         order_off = int(inp.pop(0))
     elif (k == '--no-bitmap'):
         no_bitmap = True
+    elif (k == '--flim'):
+        fmin = float(inp.pop(0))
+        fmax = float(inp.pop(0))
+        flim = [fmin, fmax]
     elif (k == '--ylim'):
         ymin = float(inp.pop(0))
         ymax = float(inp.pop(0))
@@ -147,11 +153,12 @@ for fii,fin in enumerate(files):
     #samprate = fpgaclock * 4.
     #freq0 = np.fft.fftfreq(nchan*4, d=1/samprate)
     #freq = freq0[nchan:nchan*2] / 1e6
-    freq = np.linspace(0, fpgaclock, nchan, endpoint=False) + fpgaclock
-    freq /= 1e6
+    #freq = np.linspace(0, fpgaclock, nchan, endpoint=False) + fpgaclock
+    #freq /= 1e6
     #print(freq)
-    xlim = [freq[0], freq[-1]]
-    print('freq[0], freq[-1]:', freq[0], freq[-1])
+    #xlim = [freq[0], freq[-1]]
+    freq = np.linspace(flim[0], flim[1], nchan, endpoint=False) # MHz
+    print('flim:', flim)
 
     skipfile = False
     fh = open(fin, 'rb')
@@ -232,7 +239,7 @@ for fii,fin in enumerate(files):
     warnings.filterwarnings('default')
 
 
-    ax.set_xlim(xlim)
+    ax.set_xlim(flim)
     f1.tight_layout(rect=[0,0.03,1,0.95])
     f1.subplots_adjust(wspace=0, hspace=0)
     f1.suptitle('%s, npack=%d, nframe=%d, pack0=%d'%(fin, npack, nframe, p0))

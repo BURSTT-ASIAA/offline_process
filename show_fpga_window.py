@@ -535,8 +535,8 @@ for fvis in files:
                 visamp = np.ma.abs(coeff2[i,b])
                 # spectral masking
                 mm = vispha.mask
-                mm[freq<450.] = True        # low-freq RFI at Fushan
-                mm[freq>760.] = True        # 4G signals
+                mm[freq<300.] = True        # low-freq RFI at Fushan
+                mm[freq>750.] = True        # 4G signals
                 #mm[visamp > 0.25] = True    # strong RFIs?
                 vispha.mask = mm
                 for ii in range(2): # 2 iterrations
