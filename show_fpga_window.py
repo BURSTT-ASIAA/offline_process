@@ -88,8 +88,8 @@ options are:
 
     --gant GAIN     # antenna max gain in dB (%.1f dB)
 
-    --hwhm Ehwhm Hhwhm
-                    # change the E-plan and H-plane beam width in half-width at half maximum (in deg)
+    --hwhm EWdeg NSdeg
+                    # change the E-W and N-S beam width in half-width at half maximum (in deg)
                     # default: %d %d
 
     --swapEH        # swap E and H plane attenuation (so dipoles point EW)
@@ -776,11 +776,11 @@ for fvis in files:
 
         ## apply calculate attenuation
         if (swapEH):
-            Hatt = atten(DEC/np.pi*180., Ehwhm)
-            Eatt = atten(HA/np.pi*180., Hhwhm)
+            Hatt = atten(NSoff/np.pi*180., Ehwhm)
+            Eatt = atten(EWoff/np.pi*180., Hhwhm)
         else:
-            Eatt = atten(DEC/np.pi*180., Ehwhm)
-            Hatt = atten(HA/np.pi*180., Hhwhm)
+            Eatt = atten(EWoff/np.pi*180., Ehwhm)
+            Hatt = atten(NSoff/np.pi*180., Hhwhm)
         att0 = Eatt*Hatt
         print('max atten:', att0.max())
 

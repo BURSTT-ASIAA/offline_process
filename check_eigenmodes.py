@@ -112,8 +112,8 @@ attrs['files'] = files
 
 ftime0 = None
 tsec = []
-savW2 = []  # 2 for scaled
-savV2 = []
+#savW2 = []  # 2 for scaled
+#savV2 = []
 savW3 = []  # 3 for coeff
 savV3 = []
 
@@ -175,11 +175,12 @@ for i in range(nFile):
     t1 = time.time()
     print('... data loaded. elapsed:', t1-t0)
 
-    #Cov2, norm2 = makeCov(spec, scale=True, coeff=False)
-    Cov2, norm2 = makeCov(spec, scale=True, bandpass=True, coeff=False, nPool=nPool)
-    W2, V2 = Cov2Eig(Cov2)
-    savW2.append(W2)
-    savV2.append(V2)
+    if (False):
+        #Cov2, norm2 = makeCov(spec, scale=True, coeff=False)
+        Cov2, norm2 = makeCov(spec, scale=True, bandpass=True, coeff=False, nPool=nPool)
+        W2, V2 = Cov2Eig(Cov2)
+        savW2.append(W2)
+        savV2.append(V2)
     Cov3, norm3 = makeCov(spec, scale=False, coeff=True, nPool=nPool)
     W3, V3 = Cov2Eig(Cov3)
     savW3.append(W3)
@@ -190,13 +191,13 @@ for i in range(nFile):
     print('... eigenmode got. elapsed:', t2-t0)
 
 print('files loaded')
-savW2 = np.array(savW2)
-savV2 = np.array(savV2)
+#savW2 = np.array(savW2)
+#savV2 = np.array(savV2)
 savW3 = np.array(savW3)
 savV3 = np.array(savV3)
 
-adoneh5(fout, savW2, 'win_W_scale')
-adoneh5(fout, savV2, 'win_V_scale')
+#adoneh5(fout, savW2, 'win_W_scale')
+#adoneh5(fout, savV2, 'win_V_scale')
 adoneh5(fout, savW3, 'win_W_coeff')
 adoneh5(fout, savV3, 'win_V_coeff')
 
