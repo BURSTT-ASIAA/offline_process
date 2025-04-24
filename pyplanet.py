@@ -319,11 +319,6 @@ def arrayConf(arr_config, nRow, rows=None, theta_rot=0.):
     where nTotal = nRow*nAnt 
     or the number of entries in the file
     '''
-    if (rows is None):
-        rows = np.arange(nRow)
-    else:
-        nRow = len(rows)
-
     pos = None
     if (arr_config == '16x1.0y0.5'):
         nAnt = 16
@@ -333,13 +328,22 @@ def arrayConf(arr_config, nRow, rows=None, theta_rot=0.):
         nAnt = 16
         xsep = 1.0
         ysep = 2.0
-
+    elif (arr_config == '2x8'):
+        nAnt = 8
+        xsep = 1.0
+        ysep = 1.0
+        rows = np.arange(2)
     else:
         if (os.path.isfile(arr_config)):
             pos = np.loadtxt(arr_config, usecols=(1,2,3))
         else:
             print('error opening aconf file: %s'%arr_config)
             return None
+
+    if (rows is None):
+        rows = np.arange(nRow)
+    else:
+        nRow = len(rows)
 
     if (pos is None):
         pos = np.zeros((nRow*nAnt,3))

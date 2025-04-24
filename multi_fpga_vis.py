@@ -25,15 +25,15 @@ autop0    = True
 bytePayload = 8192      # packet payload size in bytes
 byteHeader  = 64        # packet header size in bytes
 #packBlock   = 1000000   # num of packets in a block
-packBlock   = 800000   # num of packets in a block
+packBlock   = 102400   # num of packets in a block
 verbose     = False
 bitwidth    = 4
 ppf         = 2
-hdver       = 1
+hdver       = 2
 order_off   = 0
 do_pcal     = False
 feigs       = []
-meta        = 0
+meta        = 64
 
 
 pack0 = 0               # packet offset
