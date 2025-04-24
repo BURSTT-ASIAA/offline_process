@@ -409,7 +409,10 @@ peak_ns = peak_lag * 1e9/400e6 / pad # convert to ns
 # coarse delay correction
 VrefC = VrefTau*np.exp(-2j*np.pi*peak_ns.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)
 # fine delay correction
-medphi = np.median(np.angle(VrefC), axis=0)
+#medphi = np.median(np.angle(VrefC), axis=0)
+med_r = np.median(VrefC.real, axis=0)
+med_i = np.median(VrefC.imag, axis=0)
+medphi = np.angle(med_r + 1.j*med_i)
 dtau = medphi / (2.*np.pi) * lam.mean() / 2.998e8 * 1e9 # ns
 #print(dtau)
 VrefF = VrefC*np.exp(-2j*np.pi*dtau.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)

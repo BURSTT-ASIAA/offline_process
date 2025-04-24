@@ -23,7 +23,11 @@ nBeam   = nRow*nAnt
 nChan0  = 1024
 nChan   = 128       # for 256-ant
 flim    = [400., 800.]
-freq0    = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
+freq0   = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
+sep     = [1.0, 0.5]    # amtemma spacing in X and Y (meters)
+beam0   = [-7.5, -7.5]  # beam0 in X and Y
+chlim   = [0, nChan0]
+use_id  = False
 
 blocklen = 51200    # number of frames per block
 nSum    = 400       # integration number
@@ -58,6 +62,13 @@ options are:
                     # (default is to plot the normalized intensity)
     --both          # plot both raw and normalized intensities
     --trans         # transpose intensity from baseband
+    --beam0 X Y     # specify the beam0 in X and Y direction
+                    # (default: -7.5, -7.5)
+    --sep X Y       # specify the antenna spacing in X and Y (meters)
+                    # (default: 1.0, 0.5)
+    --chlim lo hi   # channel range used for spectral avg
+                    # (default: 0, 1024)
+    --id            # show xlabel and ylabel in beam_id
 
 ''' % (pg, nSum, blocklen)
 
@@ -82,6 +93,17 @@ while (inp):
         idir = inp.pop(0)
         dirs.append(idir)
         rings.append(ring_id)
+    elif (k == '--id'):
+        use_id = True
+    elif (k == '--sep'):
+        sep[0] = float(inp.pop(0))
+        sep[1] = float(inp.pop(0))
+    elif (k == '--beam0'):
+        beam0[0] = float(inp.pop(0))
+        beam0[1] = float(inp.pop(0))
+    elif (k == '--chlim'):
+        chlim[0] = int(inp.pop(0))
+        chlim[1] = int(inp.pop(0))
     elif (k=='-v'):
         verbose=1
     elif (k=='--raw'):
@@ -227,17 +249,30 @@ else:
     nWin = np.unique(nWins)[0]
 
 arrNInt = np.concatenate(arrNInts, axis=1)  # combine along freq
-mapNInt = arrNInt.mean(axis=1)
+if (chlim[1] > arrNInt.shape[1]):
+    chlim[1] = arrNInt.shape[1]
+mapNInt = arrNInt[:,chlim[0]:chlim[1]].mean(axis=1)
 if (zlim is None):
     zlim = [mapNInt.min(), mapNInt.max()]
 
 ## movie of freq-integrated maps
 gif = '%s/map256_animate.gif' % (odir2,)
-fig, ax = plt.subplots(1,1,figsize=(12,9))
-ax.set_xlabel('EW beams')
-ax.set_ylabel('NS beams')
-X = np.arange(16)
-Y = np.arange(16)
+fig, ax = plt.subplots(1,1,figsize=(10,7.5))
+
+if (use_id):
+    ax.set_xlabel('EW beams')
+    ax.set_ylabel('NS beams')
+    X = np.arange(16)
+    Y = np.arange(16)
+else:
+    ax.set_xlabel('EW angle (deg)')
+    ax.set_ylabel('NS angle (deg)')
+
+    lamb0 = 2.998e8/400e6 # meter
+    sin_theta_X = lamb0/sep[0]/nAnt*(np.arange(nAnt)+beam0[0])
+    sin_theta_Y = lamb0/sep[1]/nRow*(np.arange(nRow)+beam0[1])
+    X = np.arcsin(sin_theta_X)/np.pi*180.
+    Y = np.arcsin(sin_theta_Y)/np.pi*180.
 
 var = mapNInt[0]    # (nRow, nAnt)
 winSec = tsecs[0][0]
@@ -246,6 +281,7 @@ title = 'win: %04d, time: %s'%(0, winDT.strftime('%y%m%d_%H%M%S'))
 ax.set_title(title)
 s = ax.pcolormesh(X,Y,var,vmin=zlim[0],vmax=zlim[1])
 cb = plt.colorbar(s,ax=ax)
+fig.tight_layout()
 
 def update(i):
     print('window:',i)
@@ -264,4 +300,5 @@ ani = animation.FuncAnimation(fig=fig, func=update, frames=nWin, interval=tDelay
 ani.save(gif, writer='pillow')
 plt.close(fig)
 
-
+print('X angles (deg):', X)
+print('Y angles (deg):', Y)

@@ -22,7 +22,10 @@ nBeam   = nRow*nAnt
 nChan0  = 16384
 nChan   = 2048       # for 256-ant
 flim    = [400., 800.]
-freq0    = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
+freq0   = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
+chlim   = [0, nChan0]   # channel limit for spectral average
+combine = True
+rows    = None
 
 #blocklen = 51200    # number of frames per block
 blocklen = 204800    # number of frames per block
@@ -53,6 +56,8 @@ options are:
     -o <odir>       # specify an output dir
     --fwin nFWin    # specify the number of windows to read per file (%d)
     --redo          # force reading raw data
+    --chlim lo hi   # specify the channel range for spectral average
+    --rows 'r1 r2 ...'  # select only a few rows to plot
     --zlim zmin zmax# set the min/max color scale
     -v              # verbose
     --raw           # plot the raw intensity
@@ -73,6 +78,8 @@ while (inp):
         odir2 = inp.pop(0)
     elif (k=='--redo'):
         read_raw = True
+    elif (k == '--rows'):
+        rows = [int(x) for x in inp.pop(0).split()]
     elif (k=='--zlim'):
         zmin = float(inp.pop(0))
         zmax = float(inp.pop(0))
@@ -82,6 +89,9 @@ while (inp):
         idir = inp.pop(0)
         dirs.append(idir)
         rings.append(ring_id)
+    elif (k == '--chlim'):
+        chlim[0] = int(inp.pop(0))
+        chlim[1] = int(inp.pop(0))
     elif (k=='-v'):
         verbose=1
     elif (k=='--fwin'):
@@ -102,6 +112,10 @@ nByte   = nElem * 2
 print(nTime, nElem, nByte)
 
 nDir = len(dirs)
+
+if (rows is None):
+    rows = np.arange(nRow)
+nRow2 = len(rows)
 
 
 arrInts  = []
@@ -225,24 +239,24 @@ if (not os.path.isdir(odir2)):
     call('mkdir %s'%odir2, shell=True)
 
 ## 256 beams in one plot
-png = '%s/norm.256beams.png' % (odir2)
-#fig, sub = plt.subplots(4,16,figsize=(32,8), sharex=True, sharey=True)
-hratio = np.zeros(32)
+if (nRow2 == nRow):
+    png = '%s/norm.256beams.png' % (odir2)
+else:
+    png = '%s/norm.256beams_sel.png' % (odir2)
+
+hratio = np.zeros(nRow2*2)
 hratio[0::2] = 2
 hratio[1::2] = 1
-fig, tmp = plt.subplots(32,16,figsize=(32,48), sharex=True, height_ratios=hratio)
+fig, tmp = plt.subplots(nRow2*2,16,figsize=(32,nRow2*3), sharex=True, height_ratios=hratio)
 sub  = tmp[0::2]
 sub2 = tmp[1::2]
 
-
-for kk in range(nDir):
-    arrNInt = arrNInts[kk]
-    freq = freqs[kk]
-    winSec = tsecs[kk]
-    winDT = Time(loc0+winSec, format='unix').to_datetime()
-    X = winDT
-    Y = freq
-
+if (combine):
+    freq1 = np.concatenate(freqs, axis=0)
+    arrNInt = np.concatenate(arrNInts, axis=1)  # combine along freq
+    if (chlim[1] > len(freq1)):
+        chlim[1] = len(freq1)
+    mapNInt = arrNInt[:,chlim[0]:chlim[1]].mean(axis=1)
     if (zlim is None):
         vmin = arrNInt.min()
         vmax = arrNInt.max()
@@ -250,16 +264,51 @@ for kk in range(nDir):
         vmin = zlim[0]
         vmax = zlim[1]
     print('zmin,zmax:', vmin, vmax)
+    winSec = tsecs[0]
+    winDT = Time(loc0+winSec, format='unix').to_datetime()
+    X = winDT
+    Y = freq1
 
-    for j in range(nRow):
+    t0 = time.time()
+    for jj,j in enumerate(rows):
+        t1 = time.time()
         for ai in range(nAnt):
-            ax = sub[nRow-1-j, ai]
+            ax = sub[nRow2-1-jj, ai]
             ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
 
-            prof = arrNInt[:,:,j,ai].mean(axis=1) # avg in freq, each node separately
-            ax2 = sub2[nRow-1-j, ai]
+            prof = mapNInt[:,j,ai]
+            ax2 = sub2[nRow2-1-jj, ai]
             ax2.plot(winDT, prof)
             ax2.set_ylim(vmin, vmax)
+            ax2.text(0.05, 0.75, '%02d,%02d'%(ai,j), transform=ax2.transAxes)
+        t2 = time.time()
+        print('... row %d plotted in %.1fsec'%(j, t2-t1))
+else:
+    for kk in range(nDir):
+        arrNInt = arrNInts[kk]
+        freq = freqs[kk]
+        winSec = tsecs[kk]
+        winDT = Time(loc0+winSec, format='unix').to_datetime()
+        X = winDT
+        Y = freq
+
+        if (zlim is None):
+            vmin = arrNInt.min()
+            vmax = arrNInt.max()
+        else:
+            vmin = zlim[0]
+            vmax = zlim[1]
+        print('zmin,zmax:', vmin, vmax)
+
+        for j in range(nRow):
+            for ai in range(nAnt):
+                ax = sub[nRow-1-j, ai]
+                ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
+
+                prof = arrNInt[:,:,j,ai].mean(axis=1) # avg in freq, each node separately
+                ax2 = sub2[nRow-1-j, ai]
+                ax2.plot(winDT, prof)
+                ax2.set_ylim(vmin, vmax)
 
 fig.autofmt_xdate()
 fig.tight_layout(rect=[0,0.03,1,0.95])
@@ -267,6 +316,8 @@ fig.subplots_adjust(wspace=0, hspace=0)
 fig.suptitle(odir2)
 fig.savefig(png)
 plt.close(fig)
+t3 = time.time()
+print('png saved in %.1fsec'%(t3-t0))
 sys.exit('finished')
 
 
