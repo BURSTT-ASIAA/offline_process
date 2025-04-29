@@ -257,7 +257,9 @@ if (zlim is None):
 
 ## movie of freq-integrated maps
 gif = '%s/map256_animate.gif' % (odir2,)
-fig, ax = plt.subplots(1,1,figsize=(10,7.5))
+#fig, ax = plt.subplots(1,1,figsize=(10,7.5))
+fig, ax = plt.subplots(1,1,figsize=(6,9))
+ax.set_aspect('equal')
 
 if (use_id):
     ax.set_xlabel('EW beams')
@@ -280,6 +282,8 @@ winDT  = Time(loc0+winSec, format='unix').to_datetime()
 title = 'win: %04d, time: %s'%(0, winDT.strftime('%y%m%d_%H%M%S'))
 ax.set_title(title)
 s = ax.pcolormesh(X,Y,var,vmin=zlim[0],vmax=zlim[1])
+ax.set_xlim(-np.array(ax.get_xlim()))
+#s = ax.pcolormesh(np.flip(X),Y,np.flip(var,axis=1),vmin=zlim[0],vmax=zlim[1])
 cb = plt.colorbar(s,ax=ax)
 fig.tight_layout()
 
@@ -293,6 +297,7 @@ def update(i):
     ax.set_title(title)
 
     s = ax.pcolormesh(X,Y,var,vmin=zlim[0],vmax=zlim[1])
+    #s = ax.pcolormesh(np.flip(X),Y,np.flip(var,axis=1),vmin=zlim[0],vmax=zlim[1])
     #cb = plt.colorbar(s,ax=ax)
 
 
@@ -302,3 +307,4 @@ plt.close(fig)
 
 print('X angles (deg):', X)
 print('Y angles (deg):', Y)
+print('flipped')

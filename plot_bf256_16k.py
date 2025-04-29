@@ -280,7 +280,8 @@ if (combine):
             ax2 = sub2[nRow2-1-jj, ai]
             ax2.plot(winDT, prof)
             ax2.set_ylim(vmin, vmax)
-            ax2.text(0.05, 0.75, '%02d,%02d'%(ai,j), transform=ax2.transAxes)
+            ax2.text(0.05, 0.55, '(%02d,%02d)\nmax:%.3f'%(ai,j,prof.max()), transform=ax2.transAxes)
+            ax2.grid(axis='both')
         t2 = time.time()
         print('... row %d plotted in %.1fsec'%(j, t2-t1))
 else:
