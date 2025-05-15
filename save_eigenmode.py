@@ -84,6 +84,9 @@ options are:
     --array <CONFIG>
                 # specify the array config (predefined or a config filename)
                 # (default: %s)
+    --flim LOW HIGH
+                # specify the frequency range in MHz
+                # (%.0f %.0f)
     --rows 'rows'
                 # specify the rows of the files in the --combine mode
                 # quote the numbers, separate with spaces
@@ -112,7 +115,7 @@ options are:
     --4bit      # read 4-bit data
     --ooff OFF  # offset added to the packet_order
 
-''' % (pg, nPack, p0, blocklen, nBlock, fout, hdver, meta, arr_config, body, site, nPool)
+''' % (pg, nPack, p0, blocklen, nBlock, fout, hdver, meta, arr_config, flim[0], flim[1], body, site, nPool)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -162,6 +165,9 @@ while (inp):
         site = inp.pop(0)
     elif (k == '--rot'):
         theta_rot = float(inp.pop(0))
+    elif (k == '--flim'):
+        flim[0] = float(inp.pop(0))
+        flim[1] = float(inp.pop(0))
     elif (k == '--redo'):
         redo = True
     elif (k == '--pool'):
@@ -177,6 +183,18 @@ byteBlock = (hdlen + paylen)*blocklen + byteBlockBM
 # frequency in MHz
 freq = np.linspace(flim[0], flim[1], nChan, endpoint=False)
 
+if (site == 'fushan6'):
+    if (theta_rot is None):
+        theta_rot = -3.0    # sujin's number
+        #theta_rot = -1.8    # old number
+elif (site == 'longtien'):
+    if (arr_config == '16x1.0y0.5'):    # the default
+        arr_config = '16x1.0y2.0'
+        if (theta_rot is None):
+            theta_rot = 0.5
+if (theta_rot is None):
+    theta_rot = 0.
+print('using theta_rot:', theta_rot)
 
 
 if (combine):
@@ -202,24 +220,13 @@ for ll in range(nLoop):
     print('eigenmode is saved in:', fout, '...')
 
 
-    if (site == 'fushan6'):
-        if (theta_rot is None):
-            theta_rot = -3.0    # sujin's number
-            #theta_rot = -1.8    # old number
-    elif (site == 'longtien'):
-        if (arr_config == '16x1.0y0.5'):    # the default
-            arr_config = '16x1.0y2.0'
-            if (theta_rot is None):
-                theta_rot = 0.5
-    if (theta_rot is None):
-        theta_rot = 0.
-
-    print('using theta_rot:', theta_rot)
     pos = arrayConf(arr_config, nFile, rows=rows, theta_rot=theta_rot)
+    print('debug:', 'pos.shape=',pos.shape, pos)
     if (aref is None):
         BVec = pos
     else:
         BVec = pos - pos[0]
+
 
     if (os.path.isfile(fout) and not redo):
         attrs = getAttrs(fout)
@@ -416,7 +423,8 @@ for ll in range(nLoop):
     elif (not savN2 is None):
         norm = savN2
     for ai in range(nAnt3):
-        ax.plot(freq, norm[ai], label='Ant%d'%ai)
+        if (not ai in ant_flag):
+            ax.plot(freq, norm[ai], label='Ant%d'%ai)
     ax.set_yscale('log')
     ax.set_ylabel('voltage normalization')
     #ax.legend(ncols=nCol)
@@ -440,7 +448,7 @@ for ll in range(nLoop):
     # eigenvector of leading mode, phase
     ax = sub[2]
     for ai in range(nAnt3):
-        if (ai < nFlag):
+        if (ai in ant_flag):
             continue
         y = savV3[:,ai,-1]
         ax.plot(freq, np.ma.angle(y), label='Ant%d'%ai)
@@ -451,7 +459,7 @@ for ll in range(nLoop):
     ax.set_xlabel('freq (MHz)')
     ax.set_xlim(flim[0], flim[1])
     if (nAnt3<=64):
-        ax.set_xlim(flim[0], flim[1]*1.25)
+        ax.set_xlim(flim[0], flim[1]*1.1)
 
     fig.tight_layout(rect=[0,0.03,1,0.95])
     fig.suptitle(fout)
@@ -511,9 +519,10 @@ for ll in range(nLoop):
             ai += 1
             ax = sub[ii,jj]
             ax2 = sub2[ii,jj]
-            ax.plot(freq, np.ma.angle(LV3[:,ai]))
-            ax.plot(freq, np.ma.angle(LV3C[:,ai]))
-            ax2.plot(freq, 10*np.ma.log10(np.ma.abs(LV3C[:,ai]*savN3[ai])))
+            if (not ai in ant_flag):
+                ax.plot(freq, np.ma.angle(LV3[:,ai]))
+                ax.plot(freq, np.ma.angle(LV3C[:,ai]))
+                ax2.plot(freq, 10*np.ma.log10(np.ma.abs(LV3C[:,ai]*savN3[ai])))
             #ax.legend()
             ax.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax.transAxes)
             ax2.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax2.transAxes)
