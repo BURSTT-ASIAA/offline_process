@@ -55,6 +55,10 @@ def atten(x, hwhm):
 # resolution
 t_samp = 30    # 30 seconds
 
+# arbitrary beam numbers
+nBeam1 = None
+nBeam2 = None
+
 usage = f'''
 compute the equitorial coordinates of beams and save to npy file
 
@@ -112,6 +116,8 @@ options are:
     --tsamp t_samp      # Time resolution in seconds.
                         # The smaller the t_samp, the longer the script takes.
                         # (default: {t_samp} seconds)
+    --n1 nBeam1         # number of beams in 1st beamform (default: nAnt)
+    --n2 nBeam2         # number of beams in 2nd beamform (default: nRow)
 ''' 
 
 if (len(inp)<1):
@@ -153,6 +159,10 @@ while(inp):
         sign = int(inp.pop(0))
     elif (k == '--tsamp'):
         t_samp = int(inp.pop(0))
+    elif (k == '--n1'):
+        nBeam1 = int(inp.pop(0))
+    elif (k == '--n2'):
+        nBeam2 = int(inp.pop(0))
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -165,13 +175,17 @@ while(inp):
         obsdt = datetime.strptime(obsdate, '%Y%m%d') - timedelta(hours=8)
         calstr = obsdate
 
+dur_hr = tlim[1] - tlim[0] # duration in hours
+
 if 'angle' in locals():
     if (len(angle) != nRow):
         sys.exit('Check angle: len(angle) != nRow')
 
 attinfo = 'att%dn%d' % (Ehwhm, Hhwhm)
-nBeam1 = nAnt
-nBeam2 = nRow
+if (nBeam1 is None):
+    nBeam1 = nAnt
+if (nBeam2 is None):
+    nBeam2 = nRow
 
 if sitename.lower() in ['fus', 'fushan']:
     sitename = 'Fushan'
@@ -245,8 +259,8 @@ obs.temp = 25 # Celsius
 site = obs
 
 # original beam_sep
-sin_theta_m1_ori = lamb0/sep1/nAnt*(np.arange(nAnt)+beam01)
-sin_theta_m2_ori = lamb0/sep2/nRow*(np.arange(nRow)+beam02)
+sin_theta_m1_ori = lamb0/sep1/nAnt*(np.arange(nBeam1)+beam01)
+sin_theta_m2_ori = lamb0/sep2/nRow*(np.arange(nBeam2)+beam02)
 
 # angle = np.array([-1.68, 9.45, 30.95, 35.24])
 
@@ -340,7 +354,7 @@ del sin_theta_m, BTau_s
 
 # calculate beam pattern
 
-nSky = 480 * (60 // t_samp)
+nSky = int(dur_hr*3600/t_samp)
 
 inVolt_all = np.zeros((nRow,nAnt,nSky,nChan), dtype=complex)
 
@@ -430,7 +444,7 @@ if cal_atten:
     att0 = Eatt*Hatt
     inVolt *= att0[np.newaxis,np.newaxis,:,np.newaxis]
 
-outVolt = np.zeros((nRow, nBeam1, nSky, nChan), dtype=complex)
+outVolt = np.zeros((nBeam2, nBeam1, nSky, nChan), dtype=complex)
 
 for ch in range(nChan):
     tmp = np.empty((nRow,nBeam1,nSky), dtype=complex)
@@ -471,8 +485,8 @@ for i in range(len(el)):
 colors = cm.tab20(np.linspace(0,1,nRow))
 fig, ax = plt.subplots(1, 1, figsize=(14,4))
 
-for i in range(nAnt):
-    for r in range(nRow):
+for i in range(nBeam1):
+    for r in range(nBeam2):
         ax.plot(ut2 + timedelta(hours=8), a1[r,i,:], ls='-', color=colors[r])
 
 t_start += timedelta(hours=8)
@@ -542,7 +556,7 @@ for i in [0]:
 
 ax.set_xlim(x_min, x_max)
 
-for i in range(nAnt):
+for i in range(nBeam1):
     max_bid = np.argmax(np.max(a1[:,i], axis=1))
     tmp = np.where(a1[max_bid,i,:] == np.max(a1[max_bid,i,:]))[0][0]
     label_loc = (ut2+timedelta(hours=8))[tmp]
