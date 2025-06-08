@@ -318,7 +318,7 @@ del sin_theta_m, BTau_s
 
 # calculate beam pattern
 
-nSky = 300
+nSky = 960
 
 inVolt_all = np.zeros((nRow,nAnt,nSky,nChan), dtype=complex)
 
@@ -349,6 +349,8 @@ print(targetname, 'transit at', t_trans, '(local time)')
 t_trans_utc = datetime.utcfromtimestamp(t_trans.timestamp())
 t_start = t_trans_utc + timedelta(hours=tlim[0], minutes=0)
 t_end   = t_trans_utc + timedelta(hours=tlim[1], minutes=0)
+#t_start = t_trans_utc - timedelta(hours=4)
+#t_end   = t_trans_utc + timedelta(hours=4)
 
 ut2 = np.linspace(t_start.timestamp(), t_end.timestamp(), nSky)
 ut2 = [datetime.fromtimestamp(ts) for ts in ut2]; ut2 = np.array(ut2)
@@ -468,7 +470,7 @@ i = nBeam1-1
 max_bid = np.argmax(np.max(a1[:,i], axis=1))
 print('i=%d'%nBeam1, max_bid, a1[max_bid,i].max())
 j = np.where(a1[max_bid,i,:] > 0.15*a1[max_bid,i].max())[0][0]
-b_start = ((ut2+timedelta(hours=8))[j] + timedelta(seconds=30)).strftime('%Y%m%d_%H%M')#.strftime('%Y%m%d %H:%M')
+b_start = ((ut2+timedelta(hours=8))[j]).strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
 
 for i in range(nBeam1-1, 0, -1):
     max_bid = np.argmax(np.max(a1[:,i], axis=1))
@@ -479,7 +481,7 @@ for i in range(nBeam1-1, 0, -1):
     y1.mask = True; y1.mask[j1:j2] = False
     y2.mask = True; y2.mask[j1:j2] = False
     j = np.ma.argmin(np.ma.abs(y1-y2))
-    b_end = ((ut2+timedelta(hours=8))[j] + timedelta(seconds=30)).strftime('%Y%m%d_%H%M')#.strftime('%Y%m%d %H:%M')
+    b_end = ((ut2+timedelta(hours=8))[j]).strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
     print('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, b_start, b_end))
     #with open(f_out_txt, 'a') as f:
     #    f.write('Beam %03d (row %d, beam %02d): %s - %s\n' % (max_bid*16+i, max_bid, i, b_start, b_end))
@@ -491,7 +493,7 @@ for i in range(nBeam1-1, 0, -1):
 i = 0
 max_bid = np.argmax(np.max(a1[:,i], axis=1))
 j = np.where(a1[max_bid,i,:] > 0.15*a1[max_bid,i].max())[0][-1]
-b_end = ((ut2+timedelta(hours=8))[j] + timedelta(seconds=30)).strftime('%Y%m%d_%H%M')#.strftime('%Y%m%d %H:%M')
+b_end = ((ut2+timedelta(hours=8))[j]).strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
 print('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, b_start, b_end))
 #with open(f_out_txt, 'a') as f:
 #    f.write('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*16+i, max_bid, i, b_start, b_end))
@@ -500,6 +502,7 @@ with open(f_out_txt, 'a') as f:
     f.write('%s %s %d' % (b_start, b_end, max_bid*nBeam1+i))
 
 
+ax.set_xlim([t_trans_utc + timedelta(hours=tlim[0]+8), t_trans_utc + timedelta(hours=tlim[1]+8)])
 ax.axvline(x=t_trans, color='limegreen', lw=10, zorder=0, alpha=0.3)
 lines = [Line2D([0], [0], linewidth=2, color=x) for x in colors]
 labels = ['row %d' % x for x in range(nRow)]
@@ -508,7 +511,6 @@ lines.append(Line2D([0.4, 0.5], [0, 0], linewidth=6, color='limegreen'))
 ax.legend(lines, labels[:len(lines)], handlelength=2.0, handletextpad=0.5, ncols=2, fontsize=9, loc='upper left', bbox_to_anchor=(1, 1))
 ax.set_xlabel('Local time')
 ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))
-ax.set_xlim(t_start+timedelta(hours=8), t_end+timedelta(hours=8))
 ax.xaxis.set_minor_locator(mdates.MinuteLocator(byminute=np.arange(0,60,5)))
 ax.grid(which='both')
 if ('angle' in locals()):
