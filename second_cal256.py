@@ -37,6 +37,8 @@ src  = 'sun'
 sep  = 0.5          # row spacing in meters
 theta_rot_deg = 0.0     # array misalignment angle in deg
 bmax = None         # auto-determine the max-intensity beam number
+read_raw = True
+flim = [400, 800]
 
 ## arbitrary number
 f410 = 5.0e5 # Jy
@@ -59,6 +61,8 @@ options are:
                 # default: %.1f
                 # note: the default will be overridden by site settings
                 #       for longtien (2.0)
+    --aref AREF # specify the reference antenna (phase ref)
+                # default: 0
     --rot ROT   # array misalignment angle in deg
                 # default: %.1f
                 # note: the default will be overriden by site settings
@@ -84,6 +88,8 @@ while (inp):
         nFrame = int(inp.pop(0))
     elif (k == '-s'):
         sep = float(inp.pop(0))
+    elif (k == '--aref'):
+        aref = int(inp.pop(0))
     elif (k == '--site'):
         site = inp.pop(0)
     elif (k == '--src'):
@@ -135,70 +141,101 @@ elif (site == 'longtien'):
     sep = 2.0
 
 
-# ## correlate 4 rows of FPGA (each server) separately
+fMHz = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
 
-spec1 = np.ma.array(np.zeros((nFPGA, nFrame, nAnt, nChan0), dtype=complex), mask=True)
-fMHz = np.linspace(400, 800, nChan0, endpoint=False)
+if (os.path.isfile('%s/ant_cov_coeff.npy'%cdir)):
+    read_raw = False
 
-t0 = time.time()
-for i in range(nFile):
-    fh0 = open(files[i], 'rb')
-    mdict0 = metaRead(fh0)
-    #print(mdict0)
-    data0, order0 = loadNode(fh0, 0, nPack, nFPGA=nFPGA, verbose=1, no_bitmap=no_bitmap, get_order=True)
-    start_chan = nChan * order0
-    wfreq = np.arange(start_chan, start_chan+nChan)
-    print('order:', order0, data0.shape, 'time', time.time()-t0, 'sec')
-    spec1[:,:,:,wfreq] = data0
-    spec1[:,:,:,wfreq].mask = False
+if (read_raw):
+    # ## correlate 4 rows of FPGA (each server) separately
+    spec1 = np.ma.array(np.zeros((nFPGA, nFrame, nAnt, nChan0), dtype=complex), mask=True)
 
-
-
-inten1 = np.mean(np.ma.abs(spec1)**2, axis=3)    # shape(nFPGA, nFrame, nAnt)
-xx = np.arange(nFrame)
-## estimate the peak beam
-inten2 = np.mean(inten1, axis=(0,1))    # shape(nAnt,) or nBeam
-if (bmax is None):
-    bb = np.ma.argmax(inten2)
-else:
-    bb = bmax
-
-fig, sub = plt.subplots(16,16,figsize=(32,24),sharey=True, sharex=True)
-
-for row in range(nFPGA):
-    for ai in range(nAnt):
-        ii = row
-        jj = ai
-        ax = sub[ii,jj]
-        if (ai == bb):
-            color = 'r'
-        else:
-            color = 'b'
-        ax.plot(xx, inten1[row,:,ai], color=color, label='row%d, beam-%d'%(row,ai))
-        
-        ax.legend()
-
-fig.savefig('%s/intensity_vs_beam.png'%cdir)
-plt.close(fig)
+    t0 = time.time()
+    for i in range(nFile):
+        fh0 = open(files[i], 'rb')
+        mdict0 = metaRead(fh0)
+        #print(mdict0)
+        data0, order0 = loadNode(fh0, 0, nPack, nFPGA=nFPGA, verbose=1, no_bitmap=no_bitmap, get_order=True)
+        start_chan = nChan * order0
+        wfreq = np.arange(start_chan, start_chan+nChan)
+        print('order:', order0, data0.shape, 'time', time.time()-t0, 'sec')
+        spec1[:,:,:,wfreq] = data0
+        spec1[:,:,:,wfreq].mask = False
 
 
 
-## choose the peak-beam for correlation
-spec = spec1[:,:,bb]
-auto = np.ma.abs(spec).mean(axis=1)
-nBl = nFPGA * (nFPGA-1) // 2
-coeff1 = np.ma.zeros((nBl,nChan0), dtype=complex)
-b = -1
-for ai in range(nFPGA-1):
-    normi = auto[ai]
-    for aj in range(ai+1, nFPGA):
-        normj = auto[aj]
-        b += 1
-        normij = np.ma.abs(spec[ai])*np.ma.abs(spec[aj])
-        cross = (spec[ai] * spec[aj].conjugate()/normij)
-        cross[normij==0.] = 0j
-        coeff1[b] = cross.mean(axis=0)
-        
+    inten1 = np.mean(np.ma.abs(spec1)**2, axis=3)    # shape(nFPGA, nFrame, nAnt)
+    xx = np.arange(nFrame)
+    ## estimate the peak beam
+    inten2 = np.mean(inten1, axis=(0,1))    # shape(nAnt,) or nBeam
+    if (bmax is None):
+        bb = np.ma.argmax(inten2)
+    else:
+        bb = bmax
+
+    fig, sub = plt.subplots(16,16,figsize=(32,24),sharey=True, sharex=True)
+    for row in range(nFPGA):
+        for ai in range(nAnt):
+            ii = row
+            jj = ai
+            ax = sub[ii,jj]
+            if (ai == bb):
+                color = 'r'
+            else:
+                color = 'b'
+            ax.plot(xx, inten1[row,:,ai], color=color, label='row%d, beam-%d'%(row,ai))
+            ax.legend()
+    fig.savefig('%s/intensity_vs_beam.png'%cdir)
+    plt.close(fig)
+
+
+    ## choose the peak-beam for correlation
+    spec = spec1[:,:,bb]
+    auto = np.ma.abs(spec).mean(axis=1) # shape=(nFPGA, nChan0)
+    nBl = nFPGA * (nFPGA-1) // 2
+    coeff1 = np.ma.zeros((nBl,nChan0), dtype=complex)
+    b = -1
+    for ai in range(nFPGA-1):
+        normi = auto[ai]
+        for aj in range(ai+1, nFPGA):
+            normj = auto[aj]
+            b += 1
+            normij = np.ma.abs(spec[ai])*np.ma.abs(spec[aj])
+            cross = (spec[ai] * spec[aj].conjugate()/normij)
+            cross[normij==0.] = 0j
+            coeff1[b] = cross.mean(axis=0)
+
+    ## calculate covarinace
+    cov1 = np.zeros((nFPGA,nFPGA, 1024), dtype=complex)
+    for i in range(nFPGA):
+        cov1[i,i] = 1.+0.j
+
+    b = -1
+    for i in range(nFPGA-1):
+        for j in range(i+1,nFPGA):
+            b += 1
+            cov1[i,j] = coeff1[b]
+            cov1[j,i] = coeff1[b].conjugate()
+
+    ## save the auto and cov
+    ofile = '%s/ant_auto.npy'%cdir
+    np.save(ofile, auto.data)
+
+    ofile = '%s/ant_cov_coeff.npy'%cdir
+    np.save(ofile, cov1)
+
+
+else: # not read_raw
+    auto = np.load('%s/ant_auto.npy'%cdir)
+    cov1 = np.load('%s/ant_cov_coeff.npy'%cdir)
+    nBl = int(nFPGA*(nFPGA-1)/2)
+    coeff1 = np.ma.zeros((nBl,nChan0), dtype=complex)
+    b = -1
+    for ai in range(nFPGA-1):
+        for aj in range(ai+1,nFPGA):
+            b += 1
+            #print(b, ai,aj)
+            coeff1[b] = cov1[ai,aj]
 
 
 
@@ -330,22 +367,8 @@ fig.savefig('%s/Tsys.png'%cdir)
 plt.close(fig)
 
 
-
-## calculate covariance and eigenmodes
-
-cov1 = np.zeros((nFPGA,nFPGA, 1024), dtype=complex)
-for i in range(nFPGA):
-    cov1[i,i] = 1.+0.j
-
-b = -1
-for i in range(nFPGA-1):
-    for j in range(i+1,nFPGA):
-        b += 1
-        cov1[i,j] = coeff1[b]
-        cov1[j,i] = coeff1[b].conjugate()
-
+## solve eigenmodes
 W1, V1 = Cov2Eig(cov1, ant_flag=[])
-
 
 fig, ax = plt.subplots(1,1,figsize=(10,6), sharex=True, sharey=True)
 
@@ -400,6 +423,44 @@ print('tauGeo (ns):', ns_tau)
 
 # correct for geometric delay
 VrefTau = Vref1p * np.exp(-2j*np.pi*ns_tau.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)
+
+ofile = '%s/eigenvector_TauGeo_correct.npy'%cdir
+np.save(ofile, VrefTau.data)
+
+## plot the normalization and eigenvector for each row
+fig, s2d = plt.subplots(4,4,figsize=(10,8), sharex=True, sharey=True)
+sub = s2d.flatten()
+med_auto = np.ma.median(auto, axis=0, keepdims=True)
+auto2 = auto/med_auto
+med_auto2 = np.median(auto2, axis=1)
+med_Vamp = np.median(np.abs(VrefTau), axis=0)
+print('norm:', med_auto2)
+print('Vamp:', med_Vamp)
+fnorm = '%s/ant_norm_correct.txt'%cdir
+with open(fnorm, 'w') as fh:
+    print('# normalization correction needed are (ns):', file=fh)
+    line2 = ' '.join(['%.3f'%x for x in 1/med_auto2])
+    print("--norm '%s'"%line2, file=fh)
+
+for i in range(nFPGA):
+    ax = sub[i]
+    ax.plot(fMHz, 1/auto2[i], label='rel.gain')
+    ax.plot(fMHz, np.abs(VrefTau[:,i]), label='abs(V)')
+    if (i == 0):
+        ax.legend()
+    if (i>=12):
+        ax.set_xlabel('freq (MHz)')
+    if (i%4==0):
+        ax.set_ylabel('rel.strength')
+    ax.set_ylim(0, 2)
+
+fig.tight_layout(rect=[0,0.03,1,0.95])
+fig.subplots_adjust(wspace=0, hspace=0)
+fig.savefig('%s/weighting.png'%cdir)
+plt.close(fig)
+
+
+## delay fitting
 FTVref = np.fft.fft(VrefTau, n=int(nChan0*pad), axis=0)
 FTVref = np.fft.fftshift(FTVref, axes=0)
 peak_lag = np.abs(FTVref).argmax(axis=0) - int(pad*nChan0/2)
@@ -426,7 +487,7 @@ with open(ftau, 'w') as fh:
     print("--ds '%s'"%line, file=fh)
 
 print('\ndelay correction needed (ns):')
-print("--ds '%s'"%line)
+print("--ds '%s'"%line, "--norm '%s'"%line2)
 print('')
 
 
@@ -452,6 +513,5 @@ png = '%s/ant_phase_correct.png'%cdir
 fig.suptitle(png)
 fig.savefig(png)
 plt.close(fig)
-
 
 
