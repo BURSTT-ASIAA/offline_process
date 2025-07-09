@@ -52,6 +52,8 @@ revpos  = False
 swapEH  = False
 zlim    = [0., 300.]
 tlim    = None
+freq_ref = 400e6    # reference frequency to scale the SEFD
+flam_ref = 2.998e8/freq_ref # reference lambda
 
 def atten(x, hwhm):
     '''
@@ -629,8 +631,9 @@ for fvis in files:
 
     fsel = np.logical_and(freq>=rfmin, freq<=rfmax)
     avgRF = freq[fsel].mean()
-    lam = 2.998e8 / (avgRF * 1e6)   # wavelength in meters
+    #lam = 2.998e8 / (avgRF * 1e6)   # wavelength in meters
     flam = 2.998e8 / (freq * 1e6)
+    lam = flam_ref
 
     chBW = fullBW*1e6 / nChan       # channel bandwidth in Hz
     tInt = 1./(fullBW*1e6) * nChan  # integration time per spectrum in sec
@@ -639,15 +642,17 @@ for fvis in files:
     #G0 = 10.                       # on-axis gain (10dB --> 10)
     # fiducial num
     Tsys0 = 100.
+    #lam0  = 0.5
     lam0  = 0.5
     Aeff0 = lam0**2 * G0 / (4*np.pi)
     SEFD0 = 2.*1.38e-23*1e26*Tsys0/Aeff0/scale  # converted to Jy
     #print('fiducial SEFD (150K, 0.5m):', SEFD0/1e6, 'MJy')
 
+    # at reference freq --> 400MHz
     Aeff = lam**2 * G0 / (4.*np.pi)
     scale2 = Aeff * scale / (2*1.38e-23) * 1e-26 # Tsys = (S/Jy / SNR) * scale2
     SEFD2 = Tsys0 / scale2
-    print('fiducial SEFD (%dK, %.2fm):'%(Tsys0,lam), SEFD2/1e6, 'MJy')
+    print('fiducial SEFD (%dK, %.2fm):'%(Tsys0,lam), '%.3f'%(SEFD2/1e6), 'MJy')
     fscale2 = flam**2 * G0 / (4.*np.pi) * scale / (2*1.38e-23) * 1e-26 
     
 
@@ -1164,7 +1169,8 @@ for fvis in files:
             #vmax = Tsys2D.max()
 
             SEFD2D = Tsys2D / fscale2.reshape((1,-1))
-            fscale3 = ((flam/flam[0])**2).reshape((1,-1))
+            #fscale3 = ((flam/flam[0])**2).reshape((1,-1))
+            fscale3 = ((flam/flam_ref)**2).reshape((1,-1))
             #print('debug', fscale3)
             SEFD2D *= fscale3
             savSEFD2D.append(SEFD2D)
