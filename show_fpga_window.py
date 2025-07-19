@@ -243,6 +243,16 @@ for fvis in files:
 
 
     attrs = getAttrs(fvis)
+    attrs['EW_hwhm'] = Ehwhm
+    attrs['NS_hwhm'] = Hhwhm
+    attrs['sun_f410'] = f410
+    attrs['sun_f610'] = f610
+    attrs['aconf'] = aconf
+    attrs['Gant_dB'] = gant
+    putAttrs(fvis, attrs)
+
+    if (do_model):
+        adoneh5(fvis, antXYZ, 'antXYZ')
 
     # file-open time
     unix_utc_open = attrs.get('unix_utc_open')
@@ -316,6 +326,7 @@ for fvis in files:
         srcflux2 = f410 + (f610-f410)*xs # shape (nChan,)
     else:
         srcflux2 = np.array([srcflux])
+    adoneh5(fvis, srcflux2, 'src_flux_Jy')
 
 
     if (do_fitClkOff):
@@ -862,6 +873,7 @@ for fvis in files:
         savBproj = np.array(savBproj)
         if (revtau):
             savBproj *= -1
+        adoneh5(fvis, savBproj, 'model_tau_m')
 
 
     ## plotting for each baseline
