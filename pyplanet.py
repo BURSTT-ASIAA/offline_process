@@ -165,9 +165,12 @@ def obsSite(site='fushan6'):
             obs.lat         = '+23.71464178' #'+23.7147'
             obs.elevation   = 879.814       #850.0
         elif (site == 'lyudao'):
-            obs.long        = '121.5007'
-            obs.lat         = '+22.6750'
-            obs.elevation   = 15.0
+            #obs.long        = '121.5007'
+            #obs.lat         = '+22.6750'
+            #obs.elevation   = 15.0
+            obs.long        = '121.50130035555556'  # ppp
+            obs.lat         = '+22.675322058333336' # ppp
+            obs.elevation   = 33.1762
         elif (site == 'dongsha'):
             obs.long        = '116.7274'
             obs.lat         = '+20.10752'
@@ -184,6 +187,10 @@ def obsSite(site='fushan6'):
             obs.long         = '99.216560'
             obs.lat         = '+18.863546'
             obs.elevation   = 390.0
+        elif (site == 'gbd'):
+            obs.long        = '77.42808'
+            obs.lat         = '+13.60300'
+            obs.elevation   = 935.0
         else:
             obs = None
 
