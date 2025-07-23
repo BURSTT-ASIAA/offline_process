@@ -32,6 +32,7 @@ aref = 0
 pad  = 32   # fft padding factor; for dividing the lag sample to finer resolution
 flim = [400., 800.] # data freq range in MHz
 chlim = None        # FT delay finding channel range
+bb = None
 
 site = 'fushan6'
 src  = 'sun'
@@ -70,6 +71,7 @@ options are:
     --flim min max  # data freq range in MHz
                 # default: %.0f %.0f
     --chlim min max # FT delay fitting channel range
+    --bmax bb   # set the max beam for cross-correlation
     --src SRC   # source to calculate the geometric delay
                 # default: %s
     --interp f410 f610
@@ -98,6 +100,8 @@ while (inp):
         ch1 = int(inp.pop(0))
         ch2 = int(inp.pop(0))
         chlim = [ch1, ch2]
+    elif (k=='--bmax'):
+        bb = int(inp.pop(0))
     elif (k == '--src'):
         src = inp.pop(0)
     elif (k == '--rot'):
@@ -107,6 +111,14 @@ while (inp):
     else:
         files.append(k)
 
+
+if (chlim is None):
+    ch1 = 0
+    ch2 = nChan0
+else:
+    ch1 = chlim[0]
+    ch2 = chlim[1]
+chlim = [ch1, ch2]
 
 nPack = nFPGA * nFrame
 
@@ -167,11 +179,12 @@ for i in range(nNode):
 
 
 
-inten1 = (np.abs(spec1)**2).mean(axis=3)    # shape(nFPGA, nFrame, nAnt)
+inten1 = (np.abs(spec1)**2)[:,:,:,chlim[0]:chlim[1]].mean(axis=3)    # shape(nFPGA, nFrame, nAnt)
 xx = np.arange(nFrame)
 ## estimate the peak beam
 inten2 = inten1.mean(axis=(0,1))    # shape(nAnt,) or nBeam
-bb = np.argmax(inten2)
+if (bb is None):
+    bb = np.argmax(inten2)
 
 fig, sub = plt.subplots(8,8,figsize=(16,12),sharey=True, sharex=True)
 
@@ -414,12 +427,6 @@ print(ns_tau.shape, ns_tau)
 
 # correct for geometric delay
 VrefTau = Vref1p * np.exp(-2j*np.pi*ns_tau.reshape(1,-1)*fMHz.reshape(-1,1)*1e-3)
-if (chlim is None):
-    ch1 = 0
-    ch2 = nChan0
-else:
-    ch1 = chlim[0]
-    ch2 = chlim[1]
 nChan1 = ch2-ch1
 VrefTau = VrefTau[ch1:ch2]
 print(Vref1p.shape, VrefTau.shape)
