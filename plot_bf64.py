@@ -136,6 +136,8 @@ for j in range(nDir):
         ofile = '%s/%s.inth5'%(odir2, ring_name)     # SH: unify output folder
     print('output to:', ofile)
     odir = '%s.plots'%ofile
+    if (not os.path.isdir(odir)):
+        call('mkdir %s'%odir, shell=True)
 
     adoneh5(ofile, freq, 'freq')
 
