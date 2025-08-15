@@ -433,6 +433,45 @@ print(Vref1p.shape, VrefTau.shape)
 print(np.angle(Vref1p[:10,0]))
 print(np.angle(VrefTau[:10,0]))
 
+ofile = '%s/eigenvector_TauGeo_correct.npy'%cdir
+np.save(ofile, VrefTau.data)
+
+
+
+## plot the normalization and eigenvector for each row
+fig, s2d = plt.subplots(2,2,figsize=(10,8), sharex=True, sharey=True)
+sub = s2d.flatten()
+med_auto = np.ma.median(auto, axis=0, keepdims=True)
+auto2 = auto/med_auto
+med_auto2 = np.median(auto2, axis=1)
+med_Vamp = np.median(np.abs(VrefTau), axis=0)
+print('norm:', med_auto2)
+print('Vamp:', med_Vamp)
+fnorm = '%s/ant_norm_correct.txt'%cdir
+with open(fnorm, 'w') as fh:
+    print('# normalization correction needed are (ns):', file=fh)
+    line2 = ' '.join(['%.3f'%x for x in 1/med_auto2])
+    print("--norm '%s'"%line2, file=fh)
+
+for i in range(nFPGA):
+    ax = sub[i]
+    ax.plot(fMHz, 1/auto2[i], label='rel.gain')
+    ax.plot(fMHz[ch1:ch2], np.abs(VrefTau[:,i]), label='abs(V)')
+    if (i == 0):
+        ax.legend()
+    if (i>=12):
+        ax.set_xlabel('freq (MHz)')
+    if (i%4==0):
+        ax.set_ylabel('rel.strength')
+    ax.set_ylim(0, 2)
+
+fig.tight_layout(rect=[0,0.03,1,0.95])
+fig.subplots_adjust(wspace=0, hspace=0)
+fig.savefig('%s/weighting.png'%cdir)
+
+
+
+
 #VrefTau -= VrefTau.mean(axis=0, keepdims=True)
 FTVref = np.fft.fft(VrefTau, n=int(nChan1*pad), axis=0)
 FTVref = np.fft.fftshift(FTVref, axes=0)
@@ -457,7 +496,8 @@ with open(ftau, 'w') as fh:
     print("--ds '%s'"%line, file=fh)
 
 print('\ndelay correction needed (ns):')
-print("--ds '%s'"%line)
+#print("--ds '%s'"%line)
+print("--ds '%s'"%line, "--norm '%s'"%line2)
 print('')
 
 
