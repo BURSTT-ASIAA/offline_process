@@ -143,7 +143,7 @@ def obsSite(site='fushan6'):
             obs.long        = '121.7785'
             obs.lat         = '+24.4066'
             obs.elevation   = 300.0
-        elif (site == 'cafe'):
+        elif (site == 'cafe' or site == 'FUG'):
             obs.long        = '121.5380'
             obs.lat         = '+25.2980'
             obs.elevation   = 10.0
@@ -151,7 +151,7 @@ def obsSite(site='fushan6'):
             obs.long        = '121.5807'
             obs.lat         = '+24.7589'
             obs.elevation   = 650.0
-        elif (site == 'fushan6'):   # site 6, 230418
+        elif (site == 'fushan6' or site == 'FUS'):   # site 6, 230418
             #obs.long        = '121.5817'   # old
             #obs.lat         = '+24.7564'   # old
             obs.long        = '121.58164005833' # new
@@ -160,14 +160,23 @@ def obsSite(site='fushan6'):
             #lon = '121:34:53.90421'
             #lat = '24:45:23.39848'
             #height = 640.162*u.m
-        elif (site == 'longtien'): # DGPS measurement at 230721
+        elif (site == 'longtien' or site == 'LTN'): # DGPS measurement at 230721
             obs.long        = '120.82450942'    #'120.8244'
             obs.lat         = '+23.71464178' #'+23.7147'
             obs.elevation   = 879.814       #850.0
-        elif (site == 'lyudao'):
-            obs.long        = '121.5007'
-            obs.lat         = '+22.6750'
-            obs.elevation   = 15.0
+        elif (site == 'lyudao' or site == 'GRN'):
+            # old ver
+            #obs.long        = '121.5007'
+            #obs.lat         = '+22.6750'
+            #obs.elevation   = 15.0
+            # new ver: 2025-03 GNSS measurement, GCP 1 next to antenna 0
+            obs.long        = '121.50121981'
+            obs.lat         = '+22.67561324'
+            obs.elevation   = 32.677
+        elif (site == 'kinmen' or site == 'KMN'): # SH: from app 'GPS test'  2025-03
+            obs.long         = '118.34253917'
+            obs.lat         = '24.43985611'
+            obs.elevation   = 35.
         elif (site == 'dongsha'):
             obs.long        = '116.7274'
             obs.lat         = '+20.10752'
@@ -176,7 +185,7 @@ def obsSite(site='fushan6'):
             obs.long        = '121.5377'
             obs.lat         = '+25.0212'
             obs.elevation   = 50.0
-        elif (site == 'pahala'):
+        elif (site == 'pahala' or site == 'PHL'):
             obs.long        = '-155.4686'
             obs.lat         = '+19.2497'
             obs.elevation   = 542.5
@@ -184,6 +193,10 @@ def obsSite(site='fushan6'):
             obs.long         = '99.216560'
             obs.lat         = '+18.863546'
             obs.elevation   = 390.0
+        elif (site == 'ogasawara' or site == 'OGW'): # SH: 2024/12/23  GCP #2
+            obs.long         = '142.216932'
+            obs.lat         = '+27.092032'
+            obs.elevation   = 261.459
         else:
             obs = None
 
