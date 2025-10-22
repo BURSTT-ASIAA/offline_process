@@ -197,6 +197,10 @@ def obsSite(site='fushan6'):
             obs.long         = '142.216932'
             obs.lat         = '+27.092032'
             obs.elevation   = 261.459
+        elif (site == 'gbd'):
+            obs.long        = '77.42808'
+            obs.lat         = '+13.60300'
+            obs.elevation   = 935.0
         else:
             obs = None
 
