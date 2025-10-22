@@ -247,7 +247,8 @@ for fvis in files:
     attrs['NS_hwhm'] = Hhwhm
     attrs['sun_f410'] = f410
     attrs['sun_f610'] = f610
-    attrs['aconf'] = aconf
+    if (not aconf is None):
+        attrs['aconf'] = aconf
     attrs['Gant_dB'] = gant
     putAttrs(fvis, attrs)
 

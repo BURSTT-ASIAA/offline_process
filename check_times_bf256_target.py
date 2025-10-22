@@ -37,7 +37,7 @@ calstr = datetime.now().strftime('%Y%m%d')
 theta_rot_deg = None
 tlim = [-2, 2]    # plot range in hours from transit time
 
-scale = 0
+scale = 1
 
 # attenuation
 Ehwhm   = 30 # E-W beam half width (deg) at half max
@@ -85,7 +85,7 @@ options are:
     --rot DEG           # array misalignment angle in degree
                         # (default: Fushan = -3; Nantou = +0.5)
     --scale SCALE       # scale factor
-                        # (default: bf64 = 4096, bf256 = 16)
+                        # (default: 1)
     --noatten           # do not consider antenna attenuation
     --hwhm EW NS        # change the E-W and N-S beam half width at half maximum (in deg)
                         # default: %d %d
@@ -167,12 +167,6 @@ if (theta_rot_deg is None):
     else:
         theta_rot_deg = 0.
 
-if (nRow==4 and scale==0.):
-    scale = 4096
-elif (nRow==16 and scale==0.):
-    scale = 16
-else:
-    scale = 1
 
 print('scale =', scale)
     
@@ -299,7 +293,8 @@ BFM1 = np.zeros((nRow,nBeam1,nAnt,nChan), dtype=complex)
 for i in range(nRow):
     BFM1[i] = np.exp(sign*2.j*np.pi*pos0[i,:,0].reshape((1,nAnt,1))*sin_theta_m.reshape((nBeam1,1,1)) / 2.998e8 * freq.reshape((1, 1, nChan)))
 
-BFM1 *= 127/scale ## ? not sure
+#BFM1 *= 127/scale ## ? not sure
+BFM1 /= nAnt
 if (sign==-1):
     BFM1 = np.flip(BFM1, axis=1)
 
@@ -310,7 +305,8 @@ BFM2 = np.zeros((nBeam2,nRow,nChan), dtype=complex)
 
 BTau_s = pos0[:,0,1].reshape((1,nRow,1))*sin_theta_m.reshape((nBeam2,1,1))/2.998e8
 BFM2 = np.exp(-1.j*2.*np.pi*BTau_s*freq.reshape((1,1,nChan)))
-BFM2 *= scale
+#BFM2 *= scale
+BFM2 /= nRow
 BFM2 = BFM2.transpose((2,1,0))
 
 del sin_theta_m, BTau_s
@@ -427,7 +423,7 @@ outInt = np.flip(outInt, axis=1)
 outInt1 = np.abs(outVolt)**2; outInt1 = np.flip(outInt1, axis=1)
 
 tmp = np.abs(outVolt)**2
-tmp /= (fMHz/400.)
+tmp /= (fMHz/400.)**2
 outInt = np.ma.array(tmp.mean(axis=3), mask=False); outInt = np.flip(outInt, axis=1)
 outInt1 = np.flip(tmp, axis=1)
 
@@ -436,7 +432,7 @@ beam_int = outInt.copy()
 del inVolt, outVolt, outInt1, outInt
 
 max_val = np.max(beam_int)
-beam_int = beam_int / max_val
+#beam_int = beam_int / max_val
 
 a1 = beam_int.copy()
 

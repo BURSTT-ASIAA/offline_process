@@ -68,7 +68,8 @@ def genCov(i1, i2, ftdata):    # internal function for makeCov
     nTmp = i2-i1
     tmpCov = np.zeros((nAnt, nAnt, nTmp), dtype=complex)
     for ai in range(nAnt):
-        tmpCov[ai,ai,:] = 1+0j
+        #tmpCov[ai,ai,:] = 1+0j
+        tmpCov[ai,ai] = (np.abs(ftdata[ai])**2).mean()
     for ai in range(nAnt-1):
         for aj in range(ai+1,nAnt):
             y = ftdata[ai] * ftdata[aj].conjugate()
