@@ -21,8 +21,9 @@ options are:
     -n nPack        # how many packets to display (%d)
     --meta bytes    # ring buffer or file metadata length in bytes
     --ip            # to also display the local and dest IPs
+    --ps packSize   # override packet size (%d)
 
-''' % (pg, nPack)
+''' % (pg, nPack, packSize)
 
 if (len(inp)<1):
     sys.exit(usage)
@@ -36,6 +37,8 @@ while(inp):
         meta = int(inp.pop(0))
     elif (k == '--ip'):
         ip = True
+    elif (k == '--ps'):
+        packSize = int(inp.pop(0))
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
