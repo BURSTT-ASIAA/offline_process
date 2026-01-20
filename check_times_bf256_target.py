@@ -42,12 +42,22 @@ scale = 1
 # attenuation
 Ehwhm   = 30 # E-W beam half width (deg) at half max
 Hhwhm   = 60 # N-S beam half width (deg) at half max
+Ecent   = 0. # antenna pointing center in EW (deg)
+Ncent   = 0. # antenna pointing center in NS (deg)
 
 ## 1st beam0 convention
 # sign=1, the original method
 # sign=-1, the more consistent method
 sign=-1
     
+# arbitrary beam numbers
+nBeam1 = None
+nBeam2 = None
+
+# whether to scale the intensity by SEFD, which is proportion to freq^2
+scale_snr = True
+
+
 def atten(x, hwhm):
     sig = hwhm/np.sqrt(2.*np.log(2.))
     return np.exp(-x**2/2./sig**2)
@@ -87,6 +97,7 @@ options are:
     --scale SCALE       # scale factor
                         # (default: 1)
     --noatten           # do not consider antenna attenuation
+    --acenter E N       # antenna pointing center in EW and NS (deg)
     --hwhm EW NS        # change the E-W and N-S beam half width at half maximum (in deg)
                         # default: %d %d
     --angle 'deg0 deg1 deg2 ...'
@@ -97,6 +108,9 @@ options are:
                         # (%.1f %.1f)
     --sign S            # BFM1 convention (1 or -1)
                         # (%d)
+    --n1 nBeam1         # number of beams in 1st beamform (default: nAnt)
+    --n2 nBeam2         # number of beams in 2nd beamform (default: nRow)
+    --no_freq2          # disable the freq^2 scaling of SNR
 ''' % (pg, pg, theta_off_deg_1d, sep1, sep2, sitename, calstr, Ehwhm, Hhwhm, tlim[0], tlim[1], sign)
 
 if (len(inp)<1):
@@ -123,6 +137,9 @@ while(inp):
         cal_atten = False
         attinfo = 'noatten'
         print('No antenna attenuation considered')
+    elif (k == '--acenter'):
+        Ecent = float(inp.pop(0))
+        Ncent = float(inp.pop(0))
     elif (k == '--angle'):
         angle = np.array(inp.pop(0).split()).astype(float)
     elif (k == '--tlim'):
@@ -130,6 +147,12 @@ while(inp):
         tlim[1] = float(inp.pop(0))
     elif (k == '--sign'):
         sign = int(inp.pop(0))
+    elif (k == '--n1'):
+        nBeam1 = int(inp.pop(0))
+    elif (k == '--n2'):
+        nBeam2 = int(inp.pop(0))
+    elif (k == '--no_freq2'):
+        scale_snr = False
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -147,8 +170,10 @@ if 'angle' in locals():
         sys.exit('Check angle: len(angle) != nRow')
 
 attinfo = 'att%dn%d' % (Ehwhm, Hhwhm)
-nBeam1 = nAnt
-nBeam2 = nRow
+if (nBeam1 is None):
+    nBeam1 = nAnt
+if (nBeam2 is None):
+    nBeam2 = nRow
 
 if sitename.lower() in ['fus', 'fushan']:
     sitename = 'Fushan'
@@ -217,8 +242,8 @@ obs.temp = 25 # Celsius
 site = obs
 
 # original beam_sep
-sin_theta_m1_ori = lamb0/sep1/nAnt*(np.arange(nAnt)+beam01)
-sin_theta_m2_ori = lamb0/sep2/nRow*(np.arange(nRow)+beam02)
+sin_theta_m1_ori = lamb0/sep1/nAnt*(np.arange(nBeam1)+beam01)
+sin_theta_m2_ori = lamb0/sep2/nRow*(np.arange(nBeam2)+beam02)
 
 # angle = np.array([-1.68, 9.45, 30.95, 35.24])
 
@@ -401,8 +426,12 @@ NSang = np.arctan(y/z)/np.pi*180.
 
 if cal_atten:
     print('Consider antenna attenuation')
-    Eatt = atten(EWang, Ehwhm)
-    Hatt = atten(NSang, Hhwhm)
+    #print('debug: EWang, Ecent, Ehwhm', EWang, Ecent, Ehwhm)
+    #print('debug: NSang, Ncent, Hhwhm', NSang, Ncent, Hhwhm)
+    Eatt = atten(EWang-Ecent, Ehwhm)
+    Hatt = atten(NSang-Ncent, Hhwhm)
+    #print('debug: max(Eatt)', Eatt.max())
+    #print('debug: max(Hatt)', Hatt.max())
     att0 = Eatt*Hatt
     inVolt *= att0[np.newaxis,np.newaxis,:,np.newaxis]
 
@@ -423,7 +452,8 @@ outInt = np.flip(outInt, axis=1)
 outInt1 = np.abs(outVolt)**2; outInt1 = np.flip(outInt1, axis=1)
 
 tmp = np.abs(outVolt)**2
-tmp /= (fMHz/400.)**2
+if (scale_snr):
+    tmp /= (fMHz/400.)**2
 outInt = np.ma.array(tmp.mean(axis=3), mask=False); outInt = np.flip(outInt, axis=1)
 outInt1 = np.flip(tmp, axis=1)
 
@@ -447,8 +477,8 @@ for i in range(len(el)):
 colors = cm.tab20(np.linspace(0,1,nRow))
 fig, ax = plt.subplots(1, 1, figsize=(14,4))
 
-for i in range(nAnt):
-    for r in range(nRow):
+for i in range(nBeam1):
+    for r in range(nBeam2):
         ax.plot(ut2 + timedelta(hours=8), a1[r,i,:], ls='-', color=colors[r])
     
     max_bid = np.argmax(np.max(a1[:,i], axis=1))

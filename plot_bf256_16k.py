@@ -22,7 +22,6 @@ nBeam   = nRow*nAnt
 nChan0  = 16384
 nChan   = 2048       # for 256-ant
 flim    = [400., 800.]
-freq0   = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
 chlim   = [0, nChan0]   # channel limit for spectral average
 combine = True
 rows    = None
@@ -56,6 +55,7 @@ options are:
     -o <odir>       # specify an output dir
     --fwin nFWin    # specify the number of windows to read per file (%d)
     --redo          # force reading raw data
+    --flim fmin fmax# full freq range in MHz
     --chlim lo hi   # specify the channel range for spectral average
     --rows 'r1 r2 ...'  # select only a few rows to plot
     --zlim zmin zmax# set the min/max color scale
@@ -89,6 +89,9 @@ while (inp):
         idir = inp.pop(0)
         dirs.append(idir)
         rings.append(ring_id)
+    elif (k == '--flim'):
+        flim[0] = float(inp.pop(0))
+        flim[1] = float(inp.pop(0))
     elif (k == '--chlim'):
         chlim[0] = int(inp.pop(0))
         chlim[1] = int(inp.pop(0))
@@ -110,6 +113,8 @@ nTime   = blocklen//nSum
 nElem   = nTime*nChan*nBeam
 nByte   = nElem * 2
 print(nTime, nElem, nByte)
+
+freq0   = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
 
 nDir = len(dirs)
 
@@ -256,7 +261,8 @@ if (combine):
     arrNInt = np.concatenate(arrNInts, axis=1)  # combine along freq
     if (chlim[1] > len(freq1)):
         chlim[1] = len(freq1)
-    mapNInt = arrNInt[:,chlim[0]:chlim[1]].mean(axis=1)
+    #mapNInt = arrNInt[:,chlim[0]:chlim[1]].mean(axis=1)
+    mapNInt = np.median(arrNInt[:,chlim[0]:chlim[1]], axis=1)
     if (zlim is None):
         vmin = arrNInt.min()
         vmax = arrNInt.max()
@@ -272,6 +278,10 @@ if (combine):
     t0 = time.time()
     for jj,j in enumerate(rows):
         t1 = time.time()
+
+        pngp = '%s/prof_row%02d.png'%(odir2, j)
+        figp, axp = plt.subplots(1,1,figsize=(12,6))
+        axp.set_title('row %d, chlim:[%d,%d]'%(j,chlim[0],chlim[1]))
         for ai in range(nAnt):
             ax = sub[nRow2-1-jj, ai]
             ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
@@ -282,6 +292,14 @@ if (combine):
             ax2.set_ylim(vmin, vmax)
             ax2.text(0.05, 0.55, '(%02d,%02d)\nmax:%.3f'%(ai,j,prof.max()), transform=ax2.transAxes)
             ax2.grid(axis='both')
+
+            axp.plot(winDT, prof, label='beam%d'%ai)
+
+        axp.legend()
+        figp.autofmt_xdate()
+        figp.tight_layout()
+        figp.savefig(pngp)
+
         t2 = time.time()
         print('... row %d plotted in %.1fsec'%(j, t2-t1))
 else:
@@ -317,6 +335,7 @@ fig.subplots_adjust(wspace=0, hspace=0)
 fig.suptitle(odir2)
 fig.savefig(png)
 plt.close(fig)
+
 t3 = time.time()
 print('png saved in %.1fsec'%(t3-t0))
 sys.exit('finished')

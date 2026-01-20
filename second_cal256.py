@@ -74,6 +74,8 @@ options are:
     --interp f410 f610
                 # specify the solar flux in Jy at 410MHz and 610MHz
                 # default: f410=%.4e f610=%.4e
+    --flim FMIN FMAX
+                # specify the frequency range in MHz (full 1024ch range)
     --bmax BB   # specify the beam number to analyze
                 # default: auto-determine based on integrated intensity
 ''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610)
@@ -98,6 +100,10 @@ while (inp):
         theta_rot_deg = float(inp.pop(0))
     elif (k == '--bmax'):
         bmax = int(inp.pop(0))
+    elif (k == '--flim'):
+        fmin = float(inp.pop(0))
+        fmax = float(inp.pop(0))
+        flim = [fmin, fmax]
     elif (k.startswith('_')):
         sys.exit('unknown option: %s'%k)
     else:
