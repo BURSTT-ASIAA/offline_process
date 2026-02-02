@@ -189,6 +189,8 @@ if (theta_rot_deg is None):
         theta_rot_deg = +0.5
     elif (sitename.lower() == 'lyudao'):
         theta_rot_deg = 0.
+    elif (sitename.lower() == 'ogasawara'):
+        theta_rot_deg = -5.5
     else:
         theta_rot_deg = 0.
 
@@ -221,6 +223,12 @@ if sitename.lower() == 'lyudao':
     tmp['LAT'] = '+22.6750'
     tmp['LON'] = '121.5007'
     tmp['ELV'] = 15.0
+
+if sitename.lower() == 'ogasawara':
+    tmp['LON']  = '142.216932'
+    tmp['LAT']  = '+27.092032'
+    tmp['ELV']  = 261.459
+
 
 if len(tmp.keys()) == 0:
     sys.exit('check sitename: %s' % sitename)

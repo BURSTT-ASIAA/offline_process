@@ -512,6 +512,12 @@ for ll in range(nLoop):
     #np.save(fnpy, LV3C)    # LV3C is phase-only
     np.save(fnpy, NLV3C.filled())    # NLV3C includes bandpass EQ
 
+    ## version 2
+    NLV3C2 = 1./savN3.T * LV3C  # shape (nChan, nAnt)
+    NLV3C2.fill_value = 0j
+    fnpy = '%s/%s.antCal2.npy'%(cdir, fout)
+    np.save(fnpy, NLV3C2.filled())    # NLV3C includes bandpass EQ
+
 
     ai = -1
     for ii in range(ny):

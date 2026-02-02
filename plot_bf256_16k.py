@@ -19,15 +19,17 @@ pg  = inp.pop(0)
 nRow    = 16
 nAnt    = 16
 nBeam   = nRow*nAnt
-nChan0  = 16384
-nChan   = 2048       # for 256-ant
+nOrder  = 8
+nChan_base = 1024       # baseband nChan for full 400MHz bw
+channelization = 16     # up-channelized intensity
+nChan0  = nChan_base * channelization
+nChan   = nChan0//nOrder       # per order
 flim    = [400., 800.]
-chlim   = [0, nChan0]   # channel limit for spectral average
 combine = True
 rows    = None
 
-#blocklen = 51200    # number of frames per block
-blocklen = 204800    # number of frames per block
+#blocklen = 51200   # number of frames per block
+blocklen = 204800   # number of frames per block, for Fushan bf256
 nSum    = 400       # integration number
 
 verbose = 0
@@ -50,6 +52,7 @@ syntax:
 options are:
     --sum SUM       # the integration for the intensity data
                     # (default: %d)
+    --ochan         # number of channels per order
     --frame FRAME   # number of frames per block
                     # (default: %d)
     -o <odir>       # specify an output dir
@@ -76,6 +79,8 @@ while (inp):
     k = inp.pop(0)
     if (k=='-o'):
         odir2 = inp.pop(0)
+    elif (k == '--sum'):
+        nSum = int(inp.pop(0))
     elif (k=='--redo'):
         read_raw = True
     elif (k == '--rows'):
@@ -95,6 +100,9 @@ while (inp):
     elif (k == '--chlim'):
         chlim[0] = int(inp.pop(0))
         chlim[1] = int(inp.pop(0))
+    elif (k == '--ochan'):
+        nChan = int(inp.pop(0))
+        nChan0 = nChan * nOrder
     elif (k=='-v'):
         verbose=1
     elif (k=='--fwin'):
@@ -108,6 +116,9 @@ while (inp):
     else:
         sys.exit('extra argument: %s'%k)
 
+
+
+chlim   = [0, nChan0]   # channel limit for spectral average
 
 nTime   = blocklen//nSum
 nElem   = nTime*nChan*nBeam
