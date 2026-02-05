@@ -24,6 +24,7 @@ nChan_base = 1024       # baseband nChan for full 400MHz bw
 channelization = 16     # up-channelized intensity
 nChan0  = nChan_base * channelization
 nChan   = nChan0//nOrder       # per order
+chlim   = [0, nChan0]   # the default
 flim    = [400., 800.]
 combine = True
 rows    = None
@@ -118,7 +119,7 @@ while (inp):
 
 
 
-chlim   = [0, nChan0]   # channel limit for spectral average
+chlim   = [0, nChan0]   # channel limit for spectral average, override
 
 nTime   = blocklen//nSum
 nElem   = nTime*nChan*nBeam
@@ -305,6 +306,7 @@ if (combine):
             ax2.grid(axis='both')
 
             axp.plot(winDT, prof, label='beam%d'%ai)
+            axp.set_ylim(vmin, vmax)
 
         axp.legend()
         figp.autofmt_xdate()
