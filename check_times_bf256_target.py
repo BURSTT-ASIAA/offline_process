@@ -28,6 +28,7 @@ pg  = inp.pop(0)
 theta_off_deg_1d = 0 # deg
 
 nChan = 1024
+chlim = [0, nChan]
 
 sep1 = 1.0
 sep2 = 0.5
@@ -111,6 +112,7 @@ options are:
     --n1 nBeam1         # number of beams in 1st beamform (default: nAnt)
     --n2 nBeam2         # number of beams in 2nd beamform (default: nRow)
     --no_freq2          # disable the freq^2 scaling of SNR
+    --chlim MIN MAX     # specify a channel range to compute avg sensitivity
 ''' % (pg, pg, theta_off_deg_1d, sep1, sep2, sitename, calstr, Ehwhm, Hhwhm, tlim[0], tlim[1], sign)
 
 if (len(inp)<1):
@@ -153,6 +155,9 @@ while(inp):
         nBeam2 = int(inp.pop(0))
     elif (k == '--no_freq2'):
         scale_snr = False
+    elif (k == '--chlim'):
+        chlim[0] = int(inp.pop(0))
+        chlim[1] = int(inp.pop(0))
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -462,7 +467,9 @@ outInt1 = np.abs(outVolt)**2; outInt1 = np.flip(outInt1, axis=1)
 tmp = np.abs(outVolt)**2
 if (scale_snr):
     tmp /= (fMHz/400.)**2
-outInt = np.ma.array(tmp.mean(axis=3), mask=False); outInt = np.flip(outInt, axis=1)
+#outInt = np.ma.array(tmp.mean(axis=3), mask=False); outInt = np.flip(outInt, axis=1)
+outInt = np.ma.array(tmp[:,:,:,chlim[0]:chlim[1]].mean(axis=3), mask=False)
+outInt = np.flip(outInt, axis=1)
 outInt1 = np.flip(tmp, axis=1)
 
 beam_int = outInt.copy()
