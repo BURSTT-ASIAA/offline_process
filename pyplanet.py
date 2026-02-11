@@ -200,7 +200,12 @@ def obsSite(site='fushan6'):
         elif (site == 'gbd'):
             obs.long        = '77.42808'
             obs.lat         = '+13.60300'
-            obs.elevation   = 935.0
+            obs.elevation   = 935.0 
+        elif (site.lower() == 'pyeongchang' or site.lower() == 'pyc'): # SH: Google map
+            obs.long        = '128.448667'
+            obs.lat         = '+37.534194'
+            obs.elevation   = 510.
+
         else:
             obs = None
 

@@ -254,9 +254,16 @@ for fi in range(nFile):
     ftpart = tmp[1]
     if (len(ftpart)==10):
         ftstr = '23'+ftpart # hard-coded to 2023!!
+        
+        ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
     elif (len(ftpart)==14):
         ftstr = ftpart[2:]
-    ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
+        ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
+    
+    elif (len(ftpart)==16):
+
+        ftstr = ftpart[2:]
+        ftime = datetime.strptime(ftstr, '%y%m%d_%H%M%SZ') #SH: for UTC
     if (ftime0 is None):
         ftime0 = ftime
         unix0 = Time(ftime0, format='datetime').to_value('unix')    # local time
