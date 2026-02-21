@@ -183,15 +183,21 @@ byteBlock = (hdlen + paylen)*blocklen + byteBlockBM
 # frequency in MHz
 freq = np.linspace(flim[0], flim[1], nChan, endpoint=False)
 
-if (site == 'fushan6'):
+# SH : we need to update pyplanet.py obsSite as well
+if (site == 'fushan6' ): # or site == 'FUS'):
     if (theta_rot is None):
         theta_rot = -3.0    # sujin's number
         #theta_rot = -1.8    # old number
-elif (site == 'longtien'):
+elif (site == 'longtien' ): #or site == 'LTN'):
     if (arr_config == '16x1.0y0.5'):    # the default
         arr_config = '16x1.0y2.0'
         if (theta_rot is None):
             theta_rot = 0.5
+elif (site == 'lyudao'): # or site == 'GRN'):
+    if (arr_config == '16x1.0y0.5'):    # the default
+        arr_config = '16x1.0y1.0'
+        if (theta_rot is None):
+            theta_rot = +1.7   #based on photogrametry
 if (theta_rot is None):
     theta_rot = 0.
 print('using theta_rot:', theta_rot)

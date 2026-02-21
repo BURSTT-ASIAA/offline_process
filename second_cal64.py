@@ -211,8 +211,8 @@ plt.close(fig)
 
 
 ## choose the peak-beam for correlation
-spec = spec1[:,:,bb]
-auto = np.abs(spec).mean(axis=1)
+spec = spec1[:,:,bb] # is (nFPGA, nFrame, nChan)
+auto = np.abs(spec).mean(axis=1) # is (nFPGA, nChan)
 nBl = nFPGA * (nFPGA-1) // 2
 coeff1 = np.zeros((nBl,nChan0), dtype=complex)
 b = -1
@@ -443,8 +443,8 @@ fig, s2d = plt.subplots(2,2,figsize=(10,8), sharex=True, sharey=True)
 sub = s2d.flatten()
 med_auto = np.ma.median(auto, axis=0, keepdims=True)
 auto2 = auto/med_auto
-med_auto2 = np.median(auto2, axis=1)
-med_Vamp = np.median(np.abs(VrefTau), axis=0)
+med_auto2 = np.median(auto2[:,ch1:ch2], axis=1)
+med_Vamp = np.median(np.abs(VrefTau)[ch1:ch2], axis=0)
 print('norm:', med_auto2)
 print('Vamp:', med_Vamp)
 fnorm = '%s/ant_norm_correct.txt'%cdir

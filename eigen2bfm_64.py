@@ -99,7 +99,8 @@ while (inp):
     elif (k == '--coeff'):
         use_coeff = True
     elif (k == '--beam0'):
-        beam0 = int(inp.pop(0))
+        #beam0 = int(inp.pop(0))
+        beam0 = float(inp.pop(0)) #SH: 20250825
     elif (k == '--aconf'):
         aconf = inp.pop(0)
     elif (k == '--sep'):

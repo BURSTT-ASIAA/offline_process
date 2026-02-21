@@ -192,8 +192,10 @@ if (theta_rot_deg is None):
         theta_rot_deg = -3.0
     elif (sitename.lower() == 'longtien'):
         theta_rot_deg = +0.5
+        sep2 = 2.0
     elif (sitename.lower() == 'lyudao'):
-        theta_rot_deg = 0.
+        theta_rot_deg = +1.7
+        sep2 = 1.0
     elif (sitename.lower() == 'ogasawara'):
         theta_rot_deg = -5.5
     else:
