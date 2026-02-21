@@ -980,3 +980,29 @@ def metaRead(fh, meta=64, dict_out=True):
     else:
         #print(tmp)
         return tmp
+
+def readRBH(filename):
+    '''
+    decode the ring buffer header with memmap
+    '''
+    fhuge = np.memmap(filename, '<u1')
+    mdict = {}
+    mdict['server_id'] = np.frombuffer(fhuge[0:2], dtype='<u2')[0]
+    mdict['version_id'] = np.frombuffer(fhuge[2:4], dtype='<u2')[0]
+    mdict['buffer_id'] = np.frombuffer(fhuge[4:6], dtype='<u2')[0]
+    mdict['packet_size'] = np.frombuffer(fhuge[6:8], dtype='<u2')[0]
+    mdict['block_number'] = np.frombuffer(fhuge[8:10], dtype='<u2')[0]
+    mdict['beam_id'] = np.frombuffer(fhuge[10:12], dtype='<i2')[0]
+    mdict['packet_number'] = np.frombuffer(fhuge[12:16], dtype='<u4')[0]
+    mdict['head_block_id'] = np.frombuffer(fhuge[16:18], dtype='<u2')[0]
+    mdict['tail_block_id'] = np.frombuffer(fhuge[18:20], dtype='<u2')[0]
+    mdict['n_sum'] = np.frombuffer(fhuge[20:22], dtype='<u2')[0]
+    mdict['processed_block_id'] = np.frombuffer(fhuge[22:24], dtype='<u2')[0]
+    mdict['data_offset'] = np.frombuffer(fhuge[24:32], dtype='<u8')[0]
+    mdict['bitmask_offset'] = np.frombuffer(fhuge[32:40], dtype='<u8')[0]
+    mdict['beam_offset'] = np.frombuffer(fhuge[40:48], dtype='<u8')[0]
+    mdict['intensity_offset'] = np.frombuffer(fhuge[48:56], dtype='<u8')[0]
+    mdict['matrix_offset'] = np.frombuffer(fhuge[56:64], dtype='<u8')[0]
+    
+    return mdict
+
