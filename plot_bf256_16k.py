@@ -307,6 +307,7 @@ if (combine):
 
             axp.plot(winDT, prof, label='beam%d'%ai)
             axp.set_ylim(vmin, vmax)
+            axp.grid(True, axis='y', which='both')
 
         axp.legend()
         figp.autofmt_xdate()

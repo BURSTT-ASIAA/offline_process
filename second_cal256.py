@@ -4,11 +4,19 @@ import sys, os.path, time
 import matplotlib.pyplot as plt
 from glob import glob
 from subprocess import call, run
+from numpy.linalg import pinv
 
 from packet_func import *
 from calibrate_func import *
 from pyplanet import *
 from util_func import *
+
+def atten(x, hwhm):
+    '''
+    Gaussian attenuation (linear) given offset x and the half-power full width
+    '''
+    sig = hwhm/np.sqrt(2.*np.log(2.))
+    return np.exp(-x**2/2./sig**2)
 
 
 inp = sys.argv[0:]
@@ -44,11 +52,15 @@ bmax = None         # auto-determine the max-intensity beam number
 read_raw = True
 #flim = [400, 800]
 flim = [300, 700]
+ant_flag = []
 
 ## arbitrary number
 f410 = 5.0e5 # Jy
 f610 = 7.0e5 # Jy
 
+## beam width
+EW_hwhm = 30 # deg, IAA
+NS_hwhm = 46 # deg, IAA
 
 usage = '''
 derive delay between FPGAs from the baseband after 1st beamform (ring0, ring1 basebands)
@@ -311,9 +323,24 @@ fig.savefig('%s/coeff_ampld.png'%cdir)
 plt.close(fig)
 
 
+## for attenuation correction
+dtarr = [dt0]
+az, el = getAzEl(dtarr, body=src, site=site)
+za = np.pi/2 - el
+pntr = np.sin(za)
+pntz = np.cos(za)
+pntx = pntr * np.sin(az)
+pnty = pntr * np.cos(az)
+EWoff = np.arctan2(pntx,pntz) # rad
+NSoff = np.arctan2(pnty,pntz) # rad
+Eatt = atten(EWoff/np.pi*180., EW_hwhm)
+Hatt = atten(NSoff/np.pi*180., NS_hwhm)
+att0 = Eatt*Hatt
+print('atten:', att0)
 
 ## calculate SEFD
 flux = f410 + (fMHz-410)*(f610-f410)/200.
+flux *= att0[0]
 
 SEFD1 = flux.reshape((1,nChan0))/np.ma.abs(coeff1) * (1.-np.ma.abs(coeff1))
 lam = 2.998e8/(fMHz*1e6)  # meter
@@ -348,8 +375,60 @@ fig.savefig('%s/SEFD.png'%cdir)
 plt.close(fig)
 
 
+## solve for each antenna
+# construct matrix B: 
+B = np.zeros((nBl, nAnt))
+b = -1
+for ai in range(nAnt-1):
+    for aj in range(ai+1, nAnt):
+        b += 1
+        if (ai in ant_flag or aj in ant_flag):
+            continue # keep coefficient as zero
+        else:
+            B[b,ai] = 0.5
+            B[b,aj] = 0.5
+
+
+# pseudo-inverse
+Binv = pinv(B)
+# shape (nAnt, nBl)
+
+# model M = Ainv . D
+# residual R = B . M - D
+D = np.log10(mSEFD1)    # data, shape:(nBl, nChan)
+M = np.dot(Binv, D)     # model, shape:(nAnt,)
+BM = np.dot(B, M)
+R = BM - D              # residual, shape: (nBl, nChan)
+amSEFD1 = 10**(M)       # linear modified SEFD per ant, shape: (nAnt, nChan)
+med_SEFD = np.median(amSEFD1, axis=0, keepdims=True) # median between antennas
+del_SEFD = amSEFD1/med_SEFD
+wt_SEFD = 1./np.median(del_SEFD, axis=1) # weighting based on relative SEFD
+print('wt_SEFD:', wt_SEFD)
+med_aSEFD = np.median(amSEFD1, axis=1)
+
+fig, s2d = plt.subplots(4,4,figsize=(12,8), sharex=True, sharey=True)
+sub = s2d.flatten()
+for ai in range(nAnt):
+    ax = sub[ai]
+    ax.plot(fMHz, amSEFD1[ai]/1e6)
+    ax.set_yscale('log')
+    ax.set_ylim(0.03, 1.00)
+    ax.grid(True, which='both')
+    ax.text(0.02, 0.02, 'Row%02d: %.3fMJy'%(ai+1, med_aSEFD[ai]/1e6), color='r', transform=ax.transAxes)
+    ax.axhline(med_aSEFD[ai]/1e6, color='r', ls=':')
+
+for i in range(4):
+    s2d[i,0].set_ylabel('mSEFD (MJy)')
+    s2d[3,i].set_xlabel('freq (MHz)')
+
+fig.tight_layout()
+fig.subplots_adjust(wspace=0, hspace=0)
+fig.savefig('%s/ant_SEFD.png'%cdir)
+plt.close(fig)
+
+
 ## convert to Tsys
-G0 = 6.0 # dB
+G0 = 8.0 # dB
 gain = 10.**(G0/10.)
 
 Aeff = lam**2*gain/(4.*np.pi)  # meter^2
@@ -426,11 +505,13 @@ pos0[:,1] = np.arange(nFPGA)*sep
 pos = rot(pos0, theta_rot)
 #print(pos0, pos)    # debug
 
-dtarr = [dt0]
 tauGeo = get_tauGeo(dtarr, pos, body=src, site=site, aref=aref)
 ns_tau = tauGeo * 1e9
 #print(ns_tau.shape)
 print('tauGeo (ns):', ns_tau)
+
+
+
 
 
 #ns_deg = -8 # Sun offset in NS direction, deg
@@ -449,7 +530,7 @@ sub = s2d.flatten()
 med_auto = np.ma.median(auto, axis=0, keepdims=True)
 auto2 = auto/med_auto
 fcal2 = '%s/solution_2ndCal.npz'%(cdir,)
-np.savez(fcal2, auto2=auto2, tau_i=VrefTau)
+np.savez(fcal2, auto2=auto2, tau_i=VrefTau, wt_SEFD=wt_SEFD)
 # auto2: relative ampld btw rows
 # tau_i: eigenvector including instrument delay and weighting between rows
 
