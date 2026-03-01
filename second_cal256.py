@@ -3,7 +3,7 @@
 import sys, os.path, time
 import matplotlib.pyplot as plt
 from glob import glob
-from subprocess import call
+from subprocess import call, run
 
 from packet_func import *
 from calibrate_func import *
@@ -25,7 +25,7 @@ nChan = nChan0//nNode
 start_off = 0          # for bf64, 400-600MHz is order=2
 ## bf256 ##
 
-nFrame = 1000
+nFrame = 4096 #1000
 
 no_bitmap = False
 aref = 0
@@ -33,12 +33,17 @@ pad  = 32   # fft padding factor; for dividing the lag sample to finer resolutio
 
 site = 'fushan6'
 src  = 'sun'
+cdir_path = '/burstt14/disk12/2nd_cal'
+if (not os.path.isdir(cdir_path)):
+    cdir_path = '.'
+make_copy = True
 
 sep  = 0.5          # row spacing in meters
 theta_rot_deg = 0.0     # array misalignment angle in deg
 bmax = None         # auto-determine the max-intensity beam number
 read_raw = True
-flim = [400, 800]
+#flim = [400, 800]
+flim = [300, 700]
 
 ## arbitrary number
 f410 = 5.0e5 # Jy
@@ -78,7 +83,9 @@ options are:
                 # specify the frequency range in MHz (full 1024ch range)
     --bmax BB   # specify the beam number to analyze
                 # default: auto-determine based on integrated intensity
-''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610)
+    --copy DIR  # change the copying destination for 2nd_cal results
+                # default: %s
+''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610, cdir_path)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -104,6 +111,8 @@ while (inp):
         fmin = float(inp.pop(0))
         fmax = float(inp.pop(0))
         flim = [fmin, fmax]
+    elif (k == '--copy'):
+        cdir_path = inp.pop(0)
     elif (k.startswith('_')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -136,7 +145,8 @@ if (nStamp == 1):
 else:
     sys.exit('more than one timestamp found. abort!')
 
-cdir = 'cal_%s.check'%stamp_name
+
+cdir = 'cal_%s.check'%(stamp_name,)
 call('mkdir -p %s'%cdir, shell=True)
 
 
@@ -438,6 +448,11 @@ fig, s2d = plt.subplots(4,4,figsize=(10,8), sharex=True, sharey=True)
 sub = s2d.flatten()
 med_auto = np.ma.median(auto, axis=0, keepdims=True)
 auto2 = auto/med_auto
+fcal2 = '%s/solution_2ndCal.npz'%(cdir,)
+np.savez(fcal2, auto2=auto2, tau_i=VrefTau)
+# auto2: relative ampld btw rows
+# tau_i: eigenvector including instrument delay and weighting between rows
+
 med_auto2 = np.median(auto2, axis=1)
 med_Vamp = np.median(np.abs(VrefTau), axis=0)
 print('norm:', med_auto2)
@@ -451,7 +466,7 @@ with open(fnorm, 'w') as fh:
 for i in range(nFPGA):
     ax = sub[i]
     ax.plot(fMHz, 1/auto2[i], label='rel.gain')
-    ax.plot(fMHz, np.abs(VrefTau[:,i]), label='abs(V)')
+    ax.plot(fMHz, np.abs(VrefTau[:,i])/0.25, label='abs(V)/0.25')
     if (i == 0):
         ax.legend()
     if (i>=12):
@@ -520,4 +535,15 @@ fig.suptitle(png)
 fig.savefig(png)
 plt.close(fig)
 
+
+if (make_copy and os.path.isdir(cdir_path)):
+    if (cdir_path == '.'):
+        print('skip copying to self')
+    else:
+        #cdir2 = '%s/%s'%(cdir_path, cdir)
+        #if (not os.path.isdir(cdir2)):
+        cmd = 'rsync -avu %s %s/'%(cdir, cdir_path)
+        print(cmd)
+        res = run(cmd, shell=True, capture_output=True)
+        print(res.stdout)
 
