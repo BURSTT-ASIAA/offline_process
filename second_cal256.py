@@ -115,6 +115,9 @@ while (inp):
         site = inp.pop(0)
     elif (k == '--src'):
         src = inp.pop(0)
+    elif (k == '--interp'):
+        f410 = float(inp.pop(0))
+        f610 = float(inp.pop(0))
     elif (k == '--rot'):
         theta_rot_deg = float(inp.pop(0))
     elif (k == '--bmax'):
@@ -529,8 +532,11 @@ fig, s2d = plt.subplots(4,4,figsize=(10,8), sharex=True, sharey=True)
 sub = s2d.flatten()
 med_auto = np.ma.median(auto, axis=0, keepdims=True)
 auto2 = auto/med_auto
+#normCorr = (np.abs(VrefTau.T)/0.25 / auto2 / del_SEFD).reshape(1,nAnt,nChan0)
+normCorr = (np.abs(VrefTau.T)/0.25 / auto2 * wt_SEFD.reshape(nAnt,1)).reshape(1,nAnt,nChan0)
+phiCorr = np.exp(-1.j * np.angle(VrefTau.T)).reshape(1,nAnt,nChan0)
 fcal2 = '%s/solution_2ndCal.npz'%(cdir,)
-np.savez(fcal2, auto2=auto2, tau_i=VrefTau, wt_SEFD=wt_SEFD)
+np.savez(fcal2, auto2=auto2, tau_i=VrefTau, wt_SEFD=wt_SEFD, phiCorr=phiCorr, normCorr=normCorr, del_SEFD=del_SEFD)
 # auto2: relative ampld btw rows
 # tau_i: eigenvector including instrument delay and weighting between rows
 
@@ -548,6 +554,9 @@ for i in range(nFPGA):
     ax = sub[i]
     ax.plot(fMHz, 1/auto2[i], label='rel.gain')
     ax.plot(fMHz, np.abs(VrefTau[:,i])/0.25, label='abs(V)/0.25')
+    ax.plot(fMHz, 1/del_SEFD[i], color='g', alpha=0.5, lw=0.5, label='1/del_SEFD')
+    ax.plot(fMHz, np.ones(nChan0)*wt_SEFD[i], color='g', ls='--', label='wt_SEFD')
+    ax.plot(fMHz, normCorr[0,i], color='k', ls=':', lw=2, label='normCorr')
     if (i == 0):
         ax.legend()
     if (i>=12):
