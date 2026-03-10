@@ -37,6 +37,7 @@ for ring in rings:
         count_tot += nPack
         count_val += np.count_nonzero(BM[j1:j2])
 
+    print('nBlock, nPack, block_head:', nBlock, nPack, block_h)
     print('total, valid:', count_tot, count_val)
     print('invalid frac:', count_val/count_tot-1)
 

@@ -355,6 +355,10 @@ def arrayConf(arr_config, nRow, rows=None, theta_rot=0.):
         xsep = 1.0
         ysep = 1.0
         rows = np.arange(2)
+    elif (arr_config == '16x1.0y1.0'):
+        nAnt = 16
+        xsep = 1.0
+        ysep = 1.0
     else:
         if (os.path.isfile(arr_config)):
             pos = np.loadtxt(arr_config, usecols=(1,2,3))
