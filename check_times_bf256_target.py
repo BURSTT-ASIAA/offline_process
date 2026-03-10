@@ -58,6 +58,9 @@ nBeam2 = None
 # whether to scale the intensity by SEFD, which is proportion to freq^2
 scale_snr = True
 
+# whether to save the profiles in an npz file
+saveNPZ = False
+
 
 def atten(x, hwhm):
     sig = hwhm/np.sqrt(2.*np.log(2.))
@@ -113,6 +116,7 @@ options are:
     --n2 nBeam2         # number of beams in 2nd beamform (default: nRow)
     --no_freq2          # disable the freq^2 scaling of SNR
     --chlim MIN MAX     # specify a channel range to compute avg sensitivity
+    --save              # save the profiles into a .npz file
 ''' % (pg, pg, theta_off_deg_1d, sep1, sep2, sitename, calstr, Ehwhm, Hhwhm, tlim[0], tlim[1], sign)
 
 if (len(inp)<1):
@@ -158,6 +162,8 @@ while(inp):
     elif (k == '--chlim'):
         chlim[0] = int(inp.pop(0))
         chlim[1] = int(inp.pop(0))
+    elif (k == '--save'):
+        saveNPZ = True
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -390,6 +396,7 @@ t_end   = t_trans_utc + timedelta(hours=tlim[1], minutes=0)
 
 ut2 = np.linspace(t_start.timestamp(), t_end.timestamp(), nSky)
 ut2 = [datetime.fromtimestamp(ts) for ts in ut2]; ut2 = np.array(ut2)
+#ut_epoch = Time(ut2, 'datetime').to_value('unix')
 
 ha = []
 alt = []
@@ -504,10 +511,17 @@ for i in range(nBeam1):
     ax.text((ut2+timedelta(hours=8))[tmp], a1[max_bid,i,:][tmp], i)
 
 
-f_out_txt = 'times_%s_%s_%s_%dx%d_b0_%.1f.txt' % (targetname, int(obsdate), sitename, nBeam1, nBeam2, beam01)
+
+f_out_name = 'times_%s_%s_%s_%dx%d_b0_%.1f' % (targetname, int(obsdate), sitename, nBeam1, nBeam2, beam01)
+
+f_out_txt = '%s.txt'% f_out_name
 with open(f_out_txt, 'w') as f:
     f.write('#%s transit at %s (local time)\n#\n' % (targetname, t_trans))
     f.write('#start_time end_time beam_id\n')
+
+b_start_arr = []
+b_end_arr = []
+max_bid_arr = []
 
 i = nBeam1-1
 max_bid = np.argmax(np.max(a1[:,i], axis=1))
@@ -531,6 +545,10 @@ for i in range(nBeam1-1, 0, -1):
     #print('%s %s %d' % (b_start, b_end, max_bid*16+i))
     with open(f_out_txt, 'a') as f:
         f.write('%s %s %d\n' % (b_start, b_end, max_bid*nBeam1+i))
+    b_start_arr.append(b_start)
+    b_end_arr.append(b_end)
+    max_bid_arr.append(max_bid*nBeam1+i)
+
     b_start = b_end
 
 i = 0
@@ -544,6 +562,13 @@ print('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, 
 with open(f_out_txt, 'a') as f:
     f.write('%s %s %d' % (b_start, b_end, max_bid*nBeam1+i))
 
+b_start_arr.append(b_start) # last beam
+b_end_arr.append(b_end)
+max_bid_arr.append(max_bid*nBeam1+i)
+
+b_start_arr = np.array(b_start_arr)
+b_end_arr = np.array(b_end_arr)
+max_bid_arr = np.array(max_bid_arr)
 
 ax.set_xlim([t_trans_utc + timedelta(hours=tlim[0]+8), t_trans_utc + timedelta(hours=tlim[1]+8)])
 ax.axvline(x=t_trans, color='limegreen', lw=10, zorder=0, alpha=0.3)
@@ -562,6 +587,44 @@ else:
     ax.set_title('%s, %s (theta_rot = %.2f deg)\ntransit at %s, 1st_beam0 = %.2f, 2nd_beam0 = %.2f, theta_off_EW = %.2f deg, %s' % (targetname, sitename, theta_rot_deg, t_trans.strftime('%Y-%m-%d %H:%M:%S'), beam01, beam02, theta_off_deg_1d, attinfo))
 ax.tick_params(which='major', length=8)
 fig.tight_layout()
-fig.savefig('times_%s_%s_%s_%dx%d_b0_%.1f.png' % (targetname, int(obsdate), sitename, nBeam1, nBeam2, beam01))
+#fig.savefig('times_%s_%s_%s_%dx%d_b0_%.1f.png' % (targetname, int(obsdate), sitename, nBeam1, nBeam2, beam01))
+f_out_png = '%s.png'%f_out_name
+fig.savefig(f_out_png)
 plt.show()
 
+
+## save the profiles
+if (saveNPZ):
+    f_out_npz = '%s.npz' % f_out_name
+    # note: np.load(fnpz, allow_pickle=True)
+    attr = {
+            'src':targetname,
+            'site':sitename,
+            'theta_rot_deg=':theta_rot_deg,
+            'nAnt':nAnt,
+            'nRow':nRow,
+            'beam01':beam01,
+            'beam02':beam02,
+            'nBeam1':nBeam1,
+            'nBeam2':nBeam2,
+            'sep1':sep1,
+            'sep2':sep2,
+            'EWhwhm':Ehwhm,
+            'NShwhm':Hhwhm,
+            'EWcent':Ecent,
+            'NScent':Ncent
+            }
+
+    np.savez(f_out_npz,
+            attr=attr,
+            beam_prof=a1,       # shape (BeamNS, BeamEW, time)
+            datetime_ut=ut2,    # datetime array, shaep (time,)
+            az=az,
+            el=el,
+            EWang=EWang,
+            NSang=NSang,
+            atten=att0,
+            b_start=b_start_arr,    # estimated beam switching on time, shape (BeamNS,)
+            b_end=b_end_arr,        # estimated beam switching off time, shape (BeamNS,)
+            max_bid=max_bid_arr     # beam id of the peak intensity, shape (BeamNS,)
+            )
