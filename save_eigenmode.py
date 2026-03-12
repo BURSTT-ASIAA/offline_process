@@ -84,6 +84,9 @@ options are:
     --array <CONFIG>
                 # specify the array config (predefined or a config filename)
                 # (default: %s)
+    --flim LOW HIGH
+                # specify the frequency range in MHz
+                # (%.0f %.0f)
     --rows 'rows'
                 # specify the rows of the files in the --combine mode
                 # quote the numbers, separate with spaces
@@ -106,14 +109,13 @@ options are:
     --pool nPool
                 # number of threads used to parallel process makeCov
                 # (default: %d)
-    --flim fmin fmax    # set the spectrum min/max freq in MHz
-                        # (default: [%.1f, %.1f] MHz )
+
     (special)
     --no-bitmap # ignore the bitmap
     --4bit      # read 4-bit data
     --ooff OFF  # offset added to the packet_order
 
-''' % (pg, nPack, p0, blocklen, nBlock, fout, hdver, meta, arr_config, body, site, nPool, flim[0], flim[1])
+''' % (pg, nPack, p0, blocklen, nBlock, fout, hdver, meta, arr_config, flim[0], flim[1], body, site, nPool)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -163,14 +165,13 @@ while (inp):
         site = inp.pop(0)
     elif (k == '--rot'):
         theta_rot = float(inp.pop(0))
+    elif (k == '--flim'):
+        flim[0] = float(inp.pop(0))
+        flim[1] = float(inp.pop(0))
     elif (k == '--redo'):
         redo = True
     elif (k == '--pool'):
         nPool = int(inp.pop(0))
-    elif (k == '--flim'): 
-        flim[0] = float(inp.pop(0))
-        flim[1] = float(inp.pop(0))
-        print(f'\tset frequency range to [%.3f, %.3f] MHz'%(flim[0], flim[1]) )
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -182,6 +183,24 @@ byteBlock = (hdlen + paylen)*blocklen + byteBlockBM
 # frequency in MHz
 freq = np.linspace(flim[0], flim[1], nChan, endpoint=False)
 
+# SH : we need to update pyplanet.py obsSite as well
+if (site == 'fushan6' ): # or site == 'FUS'):
+    if (theta_rot is None):
+        theta_rot = -3.0    # sujin's number
+        #theta_rot = -1.8    # old number
+elif (site == 'longtien' ): #or site == 'LTN'):
+    if (arr_config == '16x1.0y0.5'):    # the default
+        arr_config = '16x1.0y2.0'
+        if (theta_rot is None):
+            theta_rot = 0.5
+elif (site == 'lyudao'): # or site == 'GRN'):
+    if (arr_config == '16x1.0y0.5'):    # the default
+        arr_config = '16x1.0y1.0'
+        if (theta_rot is None):
+            theta_rot = +1.7   #based on photogrametry
+if (theta_rot is None):
+    theta_rot = 0.
+print('using theta_rot:', theta_rot)
 
 
 if (combine):
@@ -207,24 +226,13 @@ for ll in range(nLoop):
     print('eigenmode is saved in:', fout, '...')
 
 
-    if (site == 'fushan6'):
-        if (theta_rot is None):
-            theta_rot = -3.0    # sujin's number
-            #theta_rot = -1.8    # old number
-    elif (site == 'longtien'):
-        if (arr_config == '16x1.0y0.5'):    # the default
-            arr_config = '16x1.0y2.0'
-            if (theta_rot is None):
-                theta_rot = 0.5
-    if (theta_rot is None):
-        theta_rot = 0.
-
-    print('using theta_rot:', theta_rot)
     pos = arrayConf(arr_config, nFile, rows=rows, theta_rot=theta_rot)
+    print('debug:', 'pos.shape=',pos.shape, pos)
     if (aref is None):
         BVec = pos
     else:
         BVec = pos - pos[0]
+
 
     if (os.path.isfile(fout) and not redo):
         attrs = getAttrs(fout)
@@ -421,7 +429,8 @@ for ll in range(nLoop):
     elif (not savN2 is None):
         norm = savN2
     for ai in range(nAnt3):
-        ax.plot(freq, norm[ai], label='Ant%d'%ai)
+        if (not ai in ant_flag):
+            ax.plot(freq, norm[ai], label='Ant%d'%ai)
     ax.set_yscale('log')
     ax.set_ylabel('voltage normalization')
     #ax.legend(ncols=nCol)
@@ -445,7 +454,7 @@ for ll in range(nLoop):
     # eigenvector of leading mode, phase
     ax = sub[2]
     for ai in range(nAnt3):
-        if (ai < nFlag):
+        if (ai in ant_flag):
             continue
         y = savV3[:,ai,-1]
         ax.plot(freq, np.ma.angle(y), label='Ant%d'%ai)
@@ -456,7 +465,7 @@ for ll in range(nLoop):
     ax.set_xlabel('freq (MHz)')
     ax.set_xlim(flim[0], flim[1])
     if (nAnt3<=64):
-        ax.set_xlim(flim[0], flim[1]*1.25)
+        ax.set_xlim(flim[0], flim[1]*1.1)
 
     fig.tight_layout(rect=[0,0.03,1,0.95])
     fig.suptitle(fout)
@@ -509,6 +518,12 @@ for ll in range(nLoop):
     #np.save(fnpy, LV3C)    # LV3C is phase-only
     np.save(fnpy, NLV3C.filled())    # NLV3C includes bandpass EQ
 
+    ## version 2
+    NLV3C2 = 1./savN3.T * LV3C  # shape (nChan, nAnt)
+    NLV3C2.fill_value = 0j
+    fnpy = '%s/%s.antCal2.npy'%(cdir, fout)
+    np.save(fnpy, NLV3C2.filled())    # NLV3C includes bandpass EQ
+
 
     ai = -1
     for ii in range(ny):
@@ -516,9 +531,10 @@ for ll in range(nLoop):
             ai += 1
             ax = sub[ii,jj]
             ax2 = sub2[ii,jj]
-            ax.plot(freq, np.ma.angle(LV3[:,ai]))
-            ax.plot(freq, np.ma.angle(LV3C[:,ai]))
-            ax2.plot(freq, 10*np.ma.log10(np.ma.abs(LV3C[:,ai]*savN3[ai])))
+            if (not ai in ant_flag):
+                ax.plot(freq, np.ma.angle(LV3[:,ai]))
+                ax.plot(freq, np.ma.angle(LV3C[:,ai]))
+                ax2.plot(freq, 10*np.ma.log10(np.ma.abs(LV3C[:,ai]*savN3[ai])))
             #ax.legend()
             ax.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax.transAxes)
             ax2.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax2.transAxes)
