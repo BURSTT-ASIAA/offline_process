@@ -800,6 +800,9 @@ for fvis in files:
             Hatt = atten(NSoff/np.pi*180., Hhwhm)
         att0 = Eatt*Hatt
         print('max atten:', att0.max())
+        adoneh5(fvis, att0, 'atten')
+        adoneh5(fvis, NSoff/np.pi*180, 'NSoff_deg')
+        adoneh5(fvis, EWoff/np.pi*180, 'EWoff_deg')
 
         unitVec  = np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)], ndmin=2).T
         unitVec *= -1       # swapped definition
@@ -1070,11 +1073,13 @@ for fvis in files:
                 medns = np.median(ns_diff)
                 ns_cdiff = sigma_clip(ns_diff)
                 stdns = ns_cdiff.std()
-                ax.scatter(tt, ns_diff, marker='*', label='data-model')
+                ax.scatter(tt, ns_diff, color='g', marker='*', label='data-model')
                 ax.scatter(tt[ns_cdiff.mask], ns_diff[ns_cdiff.mask], marker='*', color='r')
                 ax.fill_between(tt, np.ones(len(tt))*ns_cdiff.min(), np.ones(len(tt))*ns_cdiff.max(), color='b', alpha=0.2)
                 ax.text(0.05, 0.90, 'med_dtau: %.3f, std: %.3f ns'%(medns,stdns), transform=ax.transAxes)
-                ax.set_ylim(-100, 100)
+                ax.legend()
+                ax.set_ylim(-50, 50)
+                #ax.set_ylim(-100, 100)
                 ax.grid()
                 if (pp==1):
                     savTauMod.append(ns_model)

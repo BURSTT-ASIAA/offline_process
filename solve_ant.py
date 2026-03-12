@@ -18,6 +18,7 @@ tmin    = 0
 tmax    = 0
 nAnt    = 16
 gdiff   = np.zeros(nAnt)
+aref    = 0
 
 
 usage = '''
@@ -48,6 +49,7 @@ options are:
                         # but an antenna is 9.0dB, then the difference is 2.5dB
                         # default is 0dB for all antennas
                         # if multiple antennas are different, use --gdiff multiple times
+    --aref ANT          # select reference antenna for Tau and Phi solutions
 
 ''' % (pg, zmin, zmax, z2min, z2max)
 
@@ -74,6 +76,8 @@ while (inp):
     elif (k == '--gdiff'):
         ai = int(inp.pop(0))
         gdiff[ai] = float(inp.pop(0))
+    elif (k == '--aref'):
+        aref = int(inp.pop(0))
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -191,7 +195,7 @@ for fvis in files:
 
         if (pp < 2):
             M = np.dot(Ainv, D)  # shape (nAnt, nWin)
-            M -= M[0,:]   # Ant0 as reference Tau
+            M -= M[aref,:]   # Ant0 as reference Tau
             R = np.dot(A, M) - D
         else:
             M = np.dot(Binv, D)  # shape (nAnt, nWin)
@@ -290,6 +294,30 @@ for fvis in files:
         dname = 'ant%s_err'%name
         adoneh5(fvis, std, dname)
 
+        ## additional figure of antTau
+        if (pp==0):
+            fig, s2d = plt.subplots(4,4,figsize=(16,12),sharex=True,sharey=False)
+            sub = s2d.flatten()
+            for ai in range(nAnt):
+                ax = sub[ai]
+                ax.plot(winSec, M[ai])
+                #ax.set_ylim(-20,20)
+                ax.text(0.03, 0.90, 'ant%02d'%ai, transform=ax.transAxes)
+                #ax.axhline(0, color='gray')
+                medM = np.median(M[ai])
+                ax.text(0.03, 0.80, 'med: %.3f'%medM, transform=ax.transAxes)
+                ax.axhline(medM, color='r', ls=':')
+                ax.fill_between(winSec, medM-0.1, medM+0.1, color='r', alpha=0.3)
+                if (ai%4==0):
+                    ax.set_ylabel('tau (ns)')
+                if (ai>=12):
+                    ax.set_xlabel('time (sec)')
+            fig.tight_layout(rect=[0,0.03,1,0.95])
+            fig.subplots_adjust(hspace=0)
+            fig.suptitle('ant instrument Tau, %s'%odir)
+            fig.savefig('%s/antenna_Tau2.png'%odir)
+            plt.close(fig)
+
 
     if (do_Tsys2D):
         print('solve Tsys2D ...')
@@ -302,6 +330,7 @@ for fvis in files:
 
         D = np.log10(winTsys2D).transpose((1,2,0))  # new shape (nBl, nChan, nWin)
         M = np.tensordot(Binv, D, axes=(1,0))       # output shape (nAnt, nChan, nWin)
+        print(gdiff.shape, gdiff)
         M += (gdiff/10.).reshape((-1,1,1))          # Tsys is proportional to gain (linear)
                                                     # M(Tsys) is in log10 scale,
                                                     # gdiff is in dB, which is 10.*log10(gain)
