@@ -106,6 +106,12 @@ while (inp):
         src = inp.pop(0)
     elif (k == '--rot'):
         theta_rot_deg = float(inp.pop(0))
+    elif (k == '--ooff'): # SH 2024/10/09 added
+        ooff = int(inp.pop(0))
+        print(f'\t--> set packet order correction to [%d]'%(ooff) )
+    elif (k == '--interp'):
+        f410 = float(inp.pop(0))
+        f610 = float(inp.pop(0))
     elif (k.startswith('_')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -287,11 +293,14 @@ plt.close(fig)
 
 
 ## calculate SEFD
-flux = f410 + (fMHz-410)*(f610-f410)/400.
+#flux = f410 + (fMHz-410)*(f610-f410)/400.
+flux = f410 + (fMHz-410)*(f610-f410)/(610-410)
 
 SEFD1 = flux.reshape((1,nChan0))/np.abs(coeff1) * (1.-np.abs(coeff1))
 lam = 2.998e8/(fMHz*1e6)  # meter
-mSEFD1 = SEFD1 / (fMHz/400.)**2
+#mSEFD1 = SEFD1 / (fMHz/400.)**2
+freq_ref = 400. # MHz, to avoid confusion
+mSEFD1 = SEFD1 / (fMHz/freq_ref)**2
 
 
 fig, sub = plt.subplots(3,3,figsize=(16,9), sharey=True, sharex=True)
