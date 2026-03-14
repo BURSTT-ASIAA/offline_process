@@ -39,7 +39,21 @@ def headerUnpack(header, order_off=0, verbose=0, hdver=1):
         pko = header[36] + order_off
     return clk, pko
 
-def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1, unswap=False):
+
+# 256-entry LUT: byte -> complex sample
+UNPACK_LUT = np.empty(256, dtype=np.complex64)
+for b in range(256):
+    i = b & 0x0F
+    q = (b >> 4) & 0x0F
+    if i >= 8:
+        i -= 16
+    if q >= 8:
+        q -= 16
+    UNPACK_LUT[b] = i + 1j*q
+print('debug:', UNPACK_LUT)
+
+
+def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1, unswap=False, legacy=False):
     header = buf[:hdlen]
     tmp = headerUnpack(header, order_off=order_off, hdver=hdver)
     if (tmp is None):
@@ -48,34 +62,35 @@ def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1, unswap=Fa
         clk, pko = tmp
 
     if (bitwidth==4):
-        spec = np.zeros(bpp, dtype=np.complex64)
-        # when reading 2 channels (= 2 bytes), 
-        # the right 8-bit is even channel (e.g. ch0)
-        # the left 8-bit is odd channel (e.g. ch1)
-        #arr = struct.unpack('<%dH'%(bpp//2), buf[hdlen:])
-        arr = struct.unpack('<%dB'%(bpp), buf[hdlen:])
-        for k in range(bpp):
-            #bit16 = arr[k]
-            #bit8 = (bit16 & 0x00ff)         # for even channel
-            bit8 = arr[k]
-            bit4_i = bit8 & 0x0f
-            ai = toSigned(bit4_i, 4)
-            bit4_q = (bit8 & 0xf0) >> 4
-            aq = toSigned(bit4_q, 4)
-            if (unswap):    # use this when reading old bf data, no swapping
-                spec[k] = ai + 1.j*aq
-            else:           # for new bf data, swap even/odd channels
-                if (k%2==0):
-                    spec[k+1] = ai + 1j*aq
-                else:
-                    spec[k-1] = ai + 1j*aq
+        if (legacy):
+            spec = np.zeros(bpp, dtype=np.complex64)
+            # when reading 2 channels (= 2 bytes), 
+            # the right 8-bit is even channel (e.g. ch0)
+            # the left 8-bit is odd channel (e.g. ch1)
+            arr = struct.unpack('<%dB'%(bpp), buf[hdlen:])
+            for k in range(bpp):
+                bit8 = arr[k]
+                bit4_i = bit8 & 0x0f
+                ai = toSigned(bit4_i, 4)
+                bit4_q = (bit8 & 0xf0) >> 4
+                aq = toSigned(bit4_q, 4)
+                if (unswap):    # use this when reading old bf data, no swapping
+                    spec[k] = ai + 1.j*aq
+                else:           # for new bf data, swap even/odd channels
+                    if (k%2==0):
+                        spec[k+1] = ai + 1j*aq
+                    else:
+                        spec[k-1] = ai + 1j*aq
+        else: # LUT fast method
+                # reinterpret bytes without copying
+            arr = np.frombuffer(buf, dtype=np.uint8, count=bpp, offset=hdlen)
 
-            #bit8 = (bit16 & 0x00ff) >> 8    # for odd channel
-            #bit4_i = bit8 & 0x0f
-            #ai = toSigned(bit4_i, 4)
-            #bit4_q = (bit8 & 0xf0) >> 4
-            #aq = toSigned(bit4_q, 4)
-            #spec[2*k+1] = ai + 1.j*aq
+            # LUT decode
+            spec = UNPACK_LUT[arr]
+            # even/odd swap if required
+            if not unswap:
+                spec = spec.reshape(-1,2)[:,::-1].reshape(-1)
+
 
     elif (bitwidth==16):
         #arr = struct.unpack('>%dh'%(bpp//2), buf[hdlen:])  # wrong endian?
