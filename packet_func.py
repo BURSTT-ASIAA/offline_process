@@ -668,7 +668,7 @@ def decHeader2(buf, ip=False, verbose=True):
     return tmp
 
 
-def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024, ppf=2, split=False):
+def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=None, frate=400e6/1024, ppf=2, split=False):
     '''
     extract epoch time from a list of files
 
@@ -694,7 +694,7 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024
 
 
     if (hdver==2):
-        if (meta==0):
+        if (meta is None):
             meta=64     # do not override if a value is passed
         prate = frate*ppf
         unix0 = None
