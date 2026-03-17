@@ -11,7 +11,7 @@ inp = sys.argv[0:]
 pg  = inp.pop(0)
 
 tWait = 300     # wait interval in sec
-nBlock = 2      # number of Block (1 Block = 1M packets) to output
+nBlock = 1      # number of Block (1 Block = 1M packets) to output
 tBlock = 1.27   # the nominal time for one Block in sec
 
 usage = '''

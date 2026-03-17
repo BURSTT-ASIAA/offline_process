@@ -250,25 +250,42 @@ for fi in range(nFile):
     fin = grpFiles[0][fi]
     fbase = os.path.basename(fin)   # use 1st dir as reference
 
-    tmp = fbase.split('.')
-    ftpart = tmp[1]
-    if (len(ftpart)==10):
-        ftstr = '23'+ftpart # hard-coded to 2023!!
+    if (hdver == 1):
+        isUTC = False
+        tmp = fbase.split('.')
+        ftpart = tmp[1]
+        if (len(ftpart)==10):
+            ftstr = '23'+ftpart # hard-coded to 2023!!
+            
+            ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
+        elif (len(ftpart)==14):
+            ftstr = ftpart[2:]
+            ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
         
-        ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
-    elif (len(ftpart)==14):
-        ftstr = ftpart[2:]
-        ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
-    
-    elif (len(ftpart)==16):
+        elif (len(ftpart)==16):
 
-        ftstr = ftpart[2:]
-        ftime = datetime.strptime(ftstr, '%y%m%d_%H%M%SZ') #SH: for UTC
-    if (ftime0 is None):
-        ftime0 = ftime
-        unix0 = Time(ftime0, format='datetime').to_value('unix')    # local time
-        unix0 -= 3600.*8.                                           # convert to UTC
-        attrs['unix_utc_open'] = unix0
+            ftstr = ftpart[2:]
+            ftime = datetime.strptime(ftstr, '%y%m%d_%H%M%SZ') #SH: for UTC
+            isUTC = True
+
+
+        if (ftime0 is None):
+            ftime0 = ftime
+            unix0 = Time(ftime0, format='datetime').to_value('unix')    # local time
+            if (not isUTC):
+                unix0 -= 3600.*8.                                           # convert to UTC
+            attrs['unix_utc_open'] = unix0
+    elif (hdver == 2):
+        epoch = filesEpoch(fin, hdver=2)   # UTC epoch time
+        ftime = Time(epoch[0], format='unix').to_datetime()
+        ftpart = ftime.strftime('%Y%m%d%H%M%S')
+        ftstr  = ftpart[2:]
+
+        if (ftime0 is None):
+            ftime0 = ftime
+            unix0 = Time(ftime0, format='datetime').to_value('unix')
+            attrs['unix_utc_open'] = unix0
+
 
     dt = (ftime - ftime0).total_seconds()
     print('(%d/%d)'%(fi+1,nFile), fin, 'dt=%dsec'%dt)

@@ -694,6 +694,8 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024
 
 
     if (hdver==2):
+        if (meta==0):
+            meta=64     # do not override if a value is passed
         prate = frate*ppf
         unix0 = None
         epoch = []
@@ -702,6 +704,7 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024
                 md = fh.read(meta)
                 hd = fh.read(hdlen)
             tmp = decHeader2(hd)
+            #print('debug:', hd, tmp)
             #ep = tmp[2]+tmp[3]+2
             #ep = tmp[2] + 2 + (tmp[0]-tmp[4])/prate
             if unix0 is None:

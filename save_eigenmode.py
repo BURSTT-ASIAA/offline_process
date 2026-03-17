@@ -250,11 +250,12 @@ for ll in range(nLoop):
 
 
     pos = arrayConf(arr_config, nFile, rows=rows, theta_rot=theta_rot)
-    print('debug:', 'pos.shape=',pos.shape, pos)
+    #print('debug:', 'pos.shape=',pos.shape, pos)
     if (aref is None):
         BVec = pos
+        aref = 0
     else:
-        BVec = pos - pos[0]
+        BVec = pos - pos[aref]
 
 
     if (os.path.isfile(fout) and not redo):
@@ -314,15 +315,22 @@ for ll in range(nLoop):
             fbase = os.path.basename(fbin)   # use 1st dir as reference
             tmp = fbase.split('.')
             ftpart = tmp[1]
-            if (len(ftpart)==10):
-                ftstr = '23'+ftpart # hard-coded to 2023!!
-            elif (len(ftpart)==14):
-                ftstr = ftpart[2:]  # strip leading 20
-            ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
+
+            if (hdver==1):
+                if (len(ftpart)==10):
+                    ftstr = '23'+ftpart # hard-coded to 2023!!
+                elif (len(ftpart)==14):
+                    ftstr = ftpart[2:]  # strip leading 20
+                ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
+            elif (hdver==2):
+                epoch = filesEpoch(fbin, hdver=2)
+                ftime = Time(epoch[0], format='unix').to_datetime()
+                ftstr = ftime.strftime('%y%m%d%H%M%S')
+
             if (ftime0 is None):
                 ftime0 = ftime
                 unix0 = Time(ftime0, format='datetime').to_value('unix')    # local time
-                unix0 -= 3600.*8.                                           # convert to UTC
+                #unix0 -= 3600.*8.                                           # convert to UTC
                 attrs['unix_utc_open'] = unix0
 
             dt = (ftime - ftime0).total_seconds()
@@ -618,8 +626,6 @@ for ll in range(nLoop):
     print('savN3.shape:', savN3.shape)
     print('savV3.shape:', savV3.shape)
 
-    if (aref is None):
-        aref = 0
 
     LV3  = savV3[:,:,-1]                            # uncorrected eigenvector
     ## LV3.shape = (nChan, nAnt)

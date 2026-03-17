@@ -54,6 +54,7 @@ zlim    = [0., 300.]
 tlim    = None
 freq_ref = 400e6    # reference frequency to scale the SEFD
 flam_ref = 2.998e8/freq_ref # reference lambda
+site    = None
 
 def atten(x, hwhm):
     '''
@@ -85,6 +86,7 @@ options are:
     --rf MIN MAX    # RF range to use for time plot
                     # (both default to 0, for using the full range)
 
+    --site SITE     # specify the site name, if not specified, will determine from ANT_CONF below
     --aconf ANT_CONT # specify an antenna configuration file
                     # default is none
 
@@ -144,6 +146,8 @@ while (inp):
         rfmax = float(inp.pop(0))
     elif (k == '-b'):
         body = inp.pop(0)
+    elif (k == '--site'):
+        site = inp.pop(0).lower()
     elif (k == '--aconf'):
         aconf = inp.pop(0)
     elif (k == '--ai'):
@@ -216,7 +220,8 @@ else:
     do_model = True
     tmp = os.path.basename(aconf)
     tmp2 = tmp.split('_')
-    site = tmp2[0].lower()
+    if (site is None):
+        site = tmp2[0].lower()
     antXYZ = np.loadtxt(aconf, usecols=(1,2,3), ndmin=2)
 if (do_model and revpos):
     print('reversing the ant pos...')
@@ -250,6 +255,8 @@ for fvis in files:
     if (not aconf is None):
         attrs['aconf'] = aconf
     attrs['Gant_dB'] = gant
+    if (not site is None):
+        attrs['site'] = site
     putAttrs(fvis, attrs)
 
     if (do_model):
