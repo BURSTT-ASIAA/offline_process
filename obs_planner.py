@@ -85,8 +85,11 @@ while (inp):
 
 
 time = datetime.strptime(date, '%y%m%d')    # check next transit time from UTC 0h
+
+obs_site = obsSite(site=site) # for geoinforation
+
 print('=======')
-print(' SITE:', site)
+print(' SITE:', site, ' (LON, LAT, ELV) = (%s, %s, %.3f m)'%(obs_site.long, obs_site.lat, obs_site.elevation) )
 print(' DATE: ', time.strftime('%Y-%m-%d'))
 print(' Limit: ', elim, ' deg')
 print(' sort by:', skey)

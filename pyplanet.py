@@ -128,6 +128,19 @@ def obsBody(body, site='taroge4', time=datetime.utcnow(), epoch='2000', DB={}, r
 def obsSite(site='fushan6'):
         ## define observer
         # Mauna Loa Observatory site information taken from AMiBA Wiki
+
+        '''
+        BURSTT stations
+        FUS   24:45:23.37659 N   121:34:53.92087 E  642.341
+        LTN   23:42:52.48231 N   120:49:27.85643 E  882.641
+        GRN   22:40:32.20767 N   121:30:04.39131 E  32.677
+        KMN   24:26:23.18364 N   118:20:33.63267 E  48.568 
+        OGW   27:05:31.14852 N   142:13:00.87471 E  261.534
+        PYC   37:32:02.76032 N   128:26:54.85421 E  545.067
+        GBD   13:36:03.3 N        77:05:35.1  E       750
+        PHL   19:15:00.4 N       155:28:05.8  W      1760
+        '''
+
         obs = Observer()
 
         # by default, set temp and pressure to 0 to ignore atmosphere correction
@@ -135,77 +148,90 @@ def obsSite(site='fushan6'):
         obs.pressure    = 0
         # can be overriden per site
 
-        if (site == 'mlo'):
+        if (site.lower() == 'mlo'):
             obs.long        = '-155.5753'
             obs.lat         = '+19.5363'
             obs.elevation   = 3426.0
-        elif (site == 'taroge4'):
+        elif (site.lower() == 'taroge4'):
             obs.long        = '121.7785'
             obs.lat         = '+24.4066'
             obs.elevation   = 300.0
-        elif (site == 'cafe' or site == 'FUG'):
+        elif (site.lower() == 'cafe' or site.lower() == 'fug'):
             obs.long        = '121.5380'
             obs.lat         = '+25.2980'
             obs.elevation   = 10.0
-        elif (site == 'fushan1'):   # site 1, 220310
+        elif (site.lower() == 'fushan1'):   # site 1, 220310
             obs.long        = '121.5807'
             obs.lat         = '+24.7589'
             obs.elevation   = 650.0
-        elif (site == 'fushan6' or site == 'FUS'):   # site 6, 230418
-            #obs.long        = '121.5817'   # old
-            #obs.lat         = '+24.7564'   # old
+
+
+        elif (site.lower() == 'fushan6' or site.lower() == 'fus'):   # site 6, 230418
+
             obs.long        = '121.58164005833' # new
             obs.lat         = '+24.75649957777' # new
             obs.elevation   = 640.162
-            #lon = '121:34:53.90421'
-            #lat = '24:45:23.39848'
-            #height = 640.162*u.m
-        elif (site == 'longtien' or site == 'LTN'): # DGPS measurement at 230721
-            obs.long        = '120.82450942'    #'120.8244'
-            obs.lat         = '+23.71464178' #'+23.7147'
-            obs.elevation   = 879.814       #850.0
-        elif (site == 'lyudao' or site == 'GRN'):
-            # old ver
-            #obs.long        = '121.5007'
-            #obs.lat         = '+22.6750'
-            #obs.elevation   = 15.0
-            # new ver: 2025-03 GNSS measurement, GCP 1 next to antenna 0
-            obs.long        = '121.50121981'
-            obs.lat         = '+22.67561324'
+
+        elif (site.lower() == 'longtien' or site.lower() == 'ltn'): 
+            # DGPS measurement at 230721 at where?
+            #obs.long        = '120.82450942'    
+            #obs.lat         = '+23.71464178' 
+            #obs.elevation   = 879.814      
+
+            # SH: at GNSS RTK Rx, NRCan PPP
+            obs.long        = '120.82440456'    
+            obs.lat         = '+23.71457842' 
+            obs.elevation   = 882.641
+
+        elif (site.lower() == 'lyudao' or site.lower() == 'grn'):
+            # 2025-03 GNSS measurement, GCP 1 next to antenna 0, NRCan PPP
+            obs.long        = '121.50121981' 
+            obs.lat         = '22.67561324'  
             obs.elevation   = 32.677
-        elif (site == 'kinmen' or site == 'KMN'): # SH: from app 'GPS test'  2025-03
-            obs.long         = '118.34253917'
-            obs.lat         = '24.43985611'
-            obs.elevation   = 35.
-        elif (site == 'dongsha'):
-            obs.long        = '116.7274'
-            obs.lat         = '+20.10752'
-            obs.elevation   = 5.0
-        elif (site == 'iaa'):
-            obs.long        = '121.5377'
-            obs.lat         = '+25.0212'
-            obs.elevation   = 50.0
-        elif (site == 'pahala' or site == 'PHL'):
-            obs.long        = '-155.4686'
-            obs.lat         = '+19.2497'
-            obs.elevation   = 542.5
-        elif (site == 'tnro'):
-            obs.long         = '99.216560'
-            obs.lat         = '+18.863546'
-            obs.elevation   = 390.0
-        elif (site == 'ogasawara' or site == 'OGW'): # SH: 2024/12/23  GCP #2
-            obs.long         = '142.216932'
-            obs.lat         = '+27.092032'
-            obs.elevation   = 261.459
-        elif (site == 'gbd'):
+
+        elif (site.lower() == 'kinmen' or site.lower() == 'kmn'): 
+            # SH: at GNSS RTK Rx, NRCan PPP, 2026-03-11
+            obs.long        = '118.34267574'
+            obs.lat         = '24.43977323'
+            obs.elevation   = 48.568 
+
+        elif (site.lower() == 'ogasawara' or site.lower() == 'ogw'): 
+            # SH: 2024/12/23  GCP #2 NRCan PPP
+            obs.long        = '142.21690964'    #'142.216932'
+            obs.lat         = '+27.09198570'     #'+27.092032'
+            obs.elevation   = 261.534           #261.459
+
+        elif (site.lower() == 'pyeongchang' or site.lower() == 'pyc'): 
+            # SH: at GNSS RTK Rx, NRCan PPP
+            obs.long        = '128.44857061'
+            obs.lat         = '+37.53410009'
+            obs.elevation   = 545.067  # on 2nd floor of SNU observatory
+
+        elif (site.lower() == 'gbd'):
             obs.long        = '77.42808'
             obs.lat         = '+13.60300'
             obs.elevation   = 935.0 
-        elif (site.lower() == 'pyeongchang' or site.lower() == 'pyc'): # SH: Google map
-            obs.long        = '128.448667'
-            obs.lat         = '+37.534194'
-            obs.elevation   = 510.
 
+        elif (site.lower() == 'pahala' or site.lower() == 'phl'):
+            obs.long        = '-155.4686'
+            obs.lat         = '+19.2497'
+            obs.elevation   = 542.5
+
+        elif (site.lower() == 'dongsha'):
+            obs.long        = '116.7274'
+            obs.lat         = '+20.10752'
+            obs.elevation   = 5.0
+
+        elif (site.lower() == 'iaa'):
+            obs.long        = '121.5377'
+            obs.lat         = '+25.0212'
+            obs.elevation   = 50.0
+
+        elif (site.lower() == 'tnro'):
+            obs.long        = '99.216560'
+            obs.lat         = '+18.863546'
+            obs.elevation   = 390.0
+           
         else:
             obs = None
 
