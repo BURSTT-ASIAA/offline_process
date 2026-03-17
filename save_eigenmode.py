@@ -6,6 +6,7 @@ from glob import glob
 import matplotlib.pyplot as plt
 from astropy.time import Time
 from astropy.stats import sigma_clip
+from numpy.linalg import pinv
 
 from packet_func import *
 from calibrate_func import *
@@ -14,6 +15,14 @@ from pyplanet import *
 from delay_func2 import *
 
 DB = loadDB()
+
+def atten(x, hwhm):
+    '''
+    Gaussian attenuation (linear) given offset x and the half-power full width
+    '''
+    sig = hwhm/np.sqrt(2.*np.log(2.))
+    return np.exp(-x**2/2./sig**2)
+
 
 inp = sys.argv[0:]
 pg  = inp.pop(0)
@@ -45,6 +54,12 @@ arr_config = '16x1.0y0.5'
 rows    = None
 aref    = None
 theta_rot = None
+## IAA ant beam width in deg
+EW_hwhm = 30.
+NS_hwhm = 46.
+## solar flux placeholder
+f410 = 5e5
+f610 = 7e5
 
 
 ant_flag = []
@@ -95,6 +110,9 @@ options are:
                 # default to the array origin
     --body <BODY>   # set the target to calculate geometric delay
                     # (default: %s)
+    --interp f410 f610
+                    # solar flux in Jy at 410MHz and 610MHz respectively
+                    3 (default: %.2e %.2e)
     --site <SITE>   # specify the site (pre-defined sites)
                     # (default: %s)
     --rot theta_rot # the array misalignment angle in deg
@@ -115,7 +133,7 @@ options are:
     --4bit      # read 4-bit data
     --ooff OFF  # offset added to the packet_order
 
-''' % (pg, nPack, p0, blocklen, nBlock, fout, hdver, meta, arr_config, flim[0], flim[1], body, site, nPool)
+''' % (pg, nPack, p0, blocklen, nBlock, fout, hdver, meta, arr_config, flim[0], flim[1], body, f410, f610, site, nPool)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -161,6 +179,9 @@ while (inp):
         aref = int(inp.pop(0))
     elif (k == '--body'):
         body = inp.pop(0)
+    elif (k == '--interp'):
+        f410 = float(inp.pop(0))
+        f610 = float(inp.pop(0))
     elif (k == '--site'):
         site = inp.pop(0)
     elif (k == '--rot'):
@@ -182,6 +203,8 @@ byteBlockBM = blocklen//8
 byteBlock = (hdlen + paylen)*blocklen + byteBlockBM
 # frequency in MHz
 freq = np.linspace(flim[0], flim[1], nChan, endpoint=False)
+
+nBl = int(nAnt * (nAnt-1) / 2)
 
 # SH : we need to update pyplanet.py obsSite as well
 if (site == 'fushan6' ): # or site == 'FUS'):
@@ -243,6 +266,8 @@ for ll in range(nLoop):
         savW3 = getData(fout, 'W3_coeff')
         savV3 = getData(fout, 'V3_coeff')
         tsec  = getData(fout, 'winSec')
+        freq  = getData(fout, 'freq')
+        coeff1 = getData(fout, 'coeff')
         #tauGeo = getData(fout, 'tauGeo')
 
     else:   # redo or file not exist
@@ -254,6 +279,8 @@ for ll in range(nLoop):
         attrs['nAnt'] = nAnt
         attrs['nChan'] = nChan
         attrs['nFPGA'] = nFile
+        attrs['aref'] = aref
+        attrs['flim'] = flim
 
         ftime0 = None
         tsec = []
@@ -356,6 +383,14 @@ for ll in range(nLoop):
         savN3.append(norm3)
         savN3mask.append(norm3.mask)
 
+        coeff1 = np.ma.zeros((nBl,nChan), dtype=complex)
+        b = -1
+        for ai in range(nAnt-1):
+            for aj in range(ai+1,nAnt):
+                b += 1
+                #print(b, ai,aj)
+                coeff1[b] = Cov3[ai,aj]
+
         #Vlast[ii] = V[:,:,nAnt-1]
         t2 = time.time()
         print('... eigenmode got. elapsed:', t2-t0)
@@ -379,6 +414,8 @@ for ll in range(nLoop):
         adoneh5(fout, savV3, 'V3_coeff')
 
         adoneh5(fout, tsec, 'winSec')
+        adoneh5(fout, freq, 'freq')
+        adoneh5(fout, coeff1, 'coeff')
         putAttrs(fout, attrs)
 
 
@@ -412,6 +449,82 @@ for ll in range(nLoop):
         attrs2['array'] = arr_config
         attrs2['theta_rot'] = theta_rot
         putAttrs(fout, attrs2, dest='tauGeo')
+
+        za = np.pi/2 - el
+        pntr = np.sin(za)
+        pntz = np.cos(za)
+        pntx = pntr * np.sin(az)
+        pnty = pntr * np.cos(az)
+        EWoff = np.arctan2(pntx,pntz) # rad
+        NSoff = np.arctan2(pnty,pntz) # rad
+        Eatt = atten(EWoff/np.pi*180., EW_hwhm)
+        Hatt = atten(NSoff/np.pi*180., NS_hwhm)
+        att0 = Eatt*Hatt
+        adoneh5(fout, att0, 'atten')
+        adoneh5(fout, EWoff, 'EWoff')
+        adoneh5(fout, NSoff, 'NSoff')
+
+        ## calculate SEFD
+        flux = f410 + (freq-410)*(f610-f410)/200.
+        flux *= att0[0]
+
+        SEFD1 = flux.reshape((1,nChan))/np.ma.abs(coeff1) * (1.-np.ma.abs(coeff1))
+        lam = 2.998e8/(freq*1e6)  # meter
+        mSEFD1 = SEFD1 / (freq/400.)**2
+
+        ## solve for each antenna
+        # construct matrix B: 
+        B = np.zeros((nBl, nAnt))
+        b = -1
+        for ai in range(nAnt-1):
+            for aj in range(ai+1, nAnt):
+                b += 1
+                if (ai in ant_flag or aj in ant_flag):
+                    continue # keep coefficient as zero
+                else:
+                    B[b,ai] = 0.5
+                    B[b,aj] = 0.5
+
+
+        # pseudo-inverse
+        Binv = pinv(B)
+        # shape (nAnt, nBl)
+
+        # model M = Ainv . D
+        # residual R = B . M - D
+        D = np.log10(mSEFD1)    # data, shape:(nBl, nChan)
+        M = np.dot(Binv, D)     # model, shape:(nAnt, nChan)
+        BM = np.dot(B, M)
+        R = BM - D              # residual, shape: (nBl, nChan)
+        amSEFD1 = 10**(M)       # linear modified SEFD per ant, shape: (nAnt, nChan)
+        adoneh5(fout, amSEFD1, 'SEFD400')
+        med_SEFD = np.median(amSEFD1, axis=0, keepdims=True) # median between antennas
+        del_SEFD = amSEFD1/med_SEFD
+        wt_SEFD = 1./np.median(del_SEFD, axis=1) # weighting based on relative SEFD
+        print('wt_SEFD:', wt_SEFD)
+        med_aSEFD = np.median(amSEFD1, axis=1)
+        adoneh5(fout, wt_SEFD, 'wt_SEFD')
+
+
+        fig, s2d = plt.subplots(4,4,figsize=(12,8), sharex=True, sharey=True)
+        sub = s2d.flatten()
+        for ai in range(nAnt):
+            ax = sub[ai]
+            ax.plot(freq, amSEFD1[ai]/1e6)
+            ax.set_yscale('log')
+            ax.set_ylim(0.02, 5.00)
+            ax.grid(True, which='both')
+            ax.text(0.02, 0.02, 'Ant%02d: %.3fMJy'%(ai+1, med_aSEFD[ai]/1e6), color='r', transform=ax.transAxes)
+            ax.axhline(med_aSEFD[ai]/1e6, color='r', ls=':')
+
+        for i in range(4):
+            s2d[i,0].set_ylabel('mSEFD (MJy)')
+            s2d[3,i].set_xlabel('freq (MHz)')
+
+        fig.tight_layout()
+        fig.subplots_adjust(wspace=0, hspace=0)
+        fig.savefig('%s/ant_SEFD.png'%cdir)
+        plt.close(fig)
 
 
 
@@ -496,23 +609,32 @@ for ll in range(nLoop):
     png = '%s/%s.phases.png'%(cdir, fout)
     fig2, sub2 = plt.subplots(ny,nx,figsize=(ww,hh),sharex=True,sharey=True)
     png2 = '%s/%s.ampld.png'%(cdir, fout)
+    fig3, sub3 = plt.subplots(ny,nx,figsize=(ww,hh),sharex=True,sharey=True)
+    png3 = '%s/%s.weight.png'%(cdir, fout)
 
     freq2 = freq * 1e6  # to Hz
     c_arr = phiCorr(tauGeo, freq2).conjugate()
 
     print('savN3.shape:', savN3.shape)
-    LV3  = savV3[:,:,-1] # leading mode with coeff
-    LV3C = LV3 * c_arr.T.reshape((nChan, nAnt3))
+    print('savV3.shape:', savV3.shape)
+
     if (aref is None):
         aref = 0
-    ref  = LV3[:,aref] / np.ma.abs(LV3[:,aref])
-    LV3  /= ref.reshape((-1,1))
-    refC  = LV3C[:,aref] / np.ma.abs(LV3C[:,aref])
-    LV3C  /= refC.reshape((-1,1))
 
+    LV3  = savV3[:,:,-1]                            # uncorrected eigenvector
+    ## LV3.shape = (nChan, nAnt)
+    ## uncorrected eigenvector, not used
+    ref  = np.ma.exp(1.j*np.ma.angle(LV3[:,aref]))   # uncorrected phase of antenna aref
+    LV3  /= ref.reshape((-1,1))                     # uncorrected eigenvector referenced to aref
+
+    ## tauGeo corrected eigenvector
+    LV3C = LV3 * c_arr.T.reshape((nChan, nAnt3))    # eigenvector with tauGeo corrected
+    refC  = np.ma.exp(1.j*np.ma.angle(LV3C[:,aref])) # corrected phase of antenna aref
+    LV3C  /= refC.reshape((-1,1))                   # corrected eigenvector referenced to aref
+
+    ## version 1, with incorrect weighting
     NLV3C = savN3.T * LV3C  # shape (nChan, nAnt)
     NLV3C.fill_value = 0j
-
     adoneh5(fout, LV3C, 'antCal')
     fnpy = '%s/%s.antCal.npy'%(cdir, fout)
     #np.save(fnpy, LV3C)    # LV3C is phase-only
@@ -525,26 +647,46 @@ for ll in range(nLoop):
     np.save(fnpy, NLV3C2.filled())    # NLV3C includes bandpass EQ
 
 
+    ## relative weighting between antennas
+    # median of antennas
+    med_ampld = np.ma.median(savN3, axis=0)
+    rel_ampld = savN3 / med_ampld.reshape(1,-1)
+    med_rel_ampld = np.ma.median(rel_ampld, axis=1) # one number per antenna
+
+
     ai = -1
     for ii in range(ny):
         for jj in range(nx):
             ai += 1
-            ax = sub[ii,jj]
+            ax  = sub[ii,jj]
             ax2 = sub2[ii,jj]
+            ax3 = sub3[ii,jj]
             if (not ai in ant_flag):
                 ax.plot(freq, np.ma.angle(LV3[:,ai]))
                 ax.plot(freq, np.ma.angle(LV3C[:,ai]))
                 ax2.plot(freq, 10*np.ma.log10(np.ma.abs(LV3C[:,ai]*savN3[ai])))
+                ax3.plot(freq, 1/rel_ampld[ai], color='b', alpha=0.3)
+                ax3.axhline(1/med_rel_ampld[ai], color='b', ls='--', label='rel_norm')
+                ax3.plot(freq, np.abs(LV3C[:,ai])/0.25, color='g', label='abs(V)/0.25')
+                ax3.plot(freq, 1/del_SEFD[ai], color='r', alpha=0.3)
+                ax3.axhline(wt_SEFD[ai], color='r', ls='--', label='wt_SEFD')
+                ax3.set_ylim(0,2)
+
             #ax.legend()
             ax.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax.transAxes)
             ax2.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax2.transAxes)
+            ax3.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax3.transAxes)
+            if (ai==0):
+                ax3.legend()
 
             if (jj==0):
-                ax.set_ylabel('power (dB)')
+                ax.set_ylabel('phase (rad)')
                 ax2.set_ylabel('power (dB)')
+                ax3.set_ylabel('scaling')
             if (ii==ny-1):
                 ax.set_xlabel('freq (MHz')
                 ax2.set_xlabel('freq (MHz')
+                ax3.set_xlabel('freq (MHz')
 
     fig.tight_layout(rect=[0,0.03,1,0.95])
     fig.subplots_adjust(wspace=0, hspace=0)
@@ -554,7 +696,30 @@ for ll in range(nLoop):
     fig2.subplots_adjust(wspace=0, hspace=0)
     fig2.savefig(png2)
     plt.close(fig2)
+    fig3.tight_layout(rect=[0,0.03,1,0.95])
+    fig3.subplots_adjust(wspace=0, hspace=0)
+    fig3.savefig(png3)
+    plt.close(fig3)
 
+
+    ## npz with more info
+    fnpz = '%s/%s.antCals.npz'%(cdir, fout)
+    np.savez(fnpz,
+            attrs=attrs,
+            atten=att0,
+            EWoff_deg=EWoff,
+            NSoff_deg=NSoff,
+            tauGeo_sec=tauGeo,
+            tauGeo_attrs=attrs2,
+            phiCorr=c_arr,
+            freq_MHz=freq,
+            winSec=tsec,
+            auto=savN3.T,       # (nChan, nAnt)
+            eigenvector=LV3C,   # (nChan, nAnt), tauGeo corrected, mainly instrument tau left
+            antCal2=NLV3C2.filled(),
+            wt_SEFD=wt_SEFD,    # relative weight factor based on SEFD ratio between antennas
+            SEFD400=amSEFD1     # antenna SEFD scaled to 400MHz
+            )
 
 
 

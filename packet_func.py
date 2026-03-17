@@ -50,7 +50,7 @@ for b in range(256):
     if q >= 8:
         q -= 16
     UNPACK_LUT[b] = i + 1j*q
-print('debug:', UNPACK_LUT)
+#print('debug:', UNPACK_LUT)
 
 
 def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1, unswap=False, legacy=False):
