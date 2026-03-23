@@ -20,13 +20,19 @@ import ephem
 import pytz
 from glob import glob
 
+from  getStationConfig import *
+
 cal_atten = True
 
 inp = sys.argv[0:]
 pg  = inp.pop(0)
 
+UTCOffset_hr = 8  #Taiwan time (UTC+8)
+
 theta_off_deg_1d = 0 # deg
 
+fmin = 400
+fmax = 800
 nChan = 1024
 chlim = [0, nChan]
 
@@ -35,14 +41,26 @@ sep2 = 0.5
 sitename = 'FUS'
 
 calstr = datetime.now().strftime('%Y%m%d')
-theta_rot_deg = None
+theta_rot_deg = 0.0
 tlim = [-2, 2]    # plot range in hours from transit time
 
-scale = 1
+#scale = 1 #unused
 
 # attenuation
-Ehwhm   = 30 # E-W beam half width (deg) at half max
-Hhwhm   = 60 # N-S beam half width (deg) at half max
+# MobileMark LPDA;  Ehwhm, Hhwhm= (40, 35) for MED
+Antenna = {
+    "MMLPDA"    : {"Ehwhm": 30., "Hhwhm": 60.},
+    "ASIAALPDA" : {"Ehwhm": 30., "Hhwhm": 45.},
+    "MED"       : {"Ehwhm": 40., "Hhwhm": 35.}
+}
+
+antenna_type = 'MMLPDA'
+
+Ehwhm   = Antenna[antenna_type]['Ehwhm'] #30 # E-W beam half width (deg) at half max
+Hhwhm   = Antenna[antenna_type]['Hhwhm'] #60 # N-S beam half width (deg) at half max
+
+
+# for tilted antenna 
 Ecent   = 0. # antenna pointing center in EW (deg)
 Ncent   = 0. # antenna pointing center in NS (deg)
 
@@ -66,69 +84,96 @@ def atten(x, hwhm):
     sig = hwhm/np.sqrt(2.*np.log(2.))
     return np.exp(-x**2/2./sig**2)
 
-usage = '''
+# resolution
+t_samp_s = 60    # 60 seconds
+
+# normalize intensity
+norm_int = False
+
+'''
+#old ver
+    {pg} <nAnt> <nRow> <beam0_BFM1d> <beam0_BFM2d> <target> <date> [options]
+    
+    <nAnt> is the number of antennas in the 1D array
+    <nRow> is the number of rows'''
+usage = f'''
 compute the equitorial coordinates of beams and save to npy file
 
 syntax:
-    %s <nAnt> <nRow> <beam0_BFM1d> <beam0_BFM2d> <target> <date> [options]
+    {pg} <beam0_BFM1d> <beam0_BFM2d> <target> <date> [options]
     
-    <nAnt> is the number of antennas in the 1D array
-    <nRow> is the number of rows
+ 
     <beam0_BFM1d> is the number of beams to offset in E-W baseline.
-                  0 means the Southern most beam is 0 deg N, 
-                  1 means shifting the Southern most beam by 1 beam north.
-    <beam0_BFM2d> is the number of beams to offset in E-W baseline.
+                  0 means the westernmost beam is toward the zenith, 
+                  1 means shifting the westernmost beam by 1 beam east.
+    <beam0_BFM2d> is the number of beams to offset in N-S baseline.
+                  0 means the southernmost beam is toward the zenith,
+                  1 means shifting the southernmost beam by 1 beam north.
     <target> is the CDS name of the target.
-             e.g., psr_b0329+54, sun, ..
+             Both uppercase and lowercase letters are allowed.
+             e.g., psr_b0329+54, sun, Crab, Cyg_A, Cas_A, 3c48, ...
     <date> is YYYYMMSS format. It automatically calculate the transit and plot +/- 4 hours.
     
 e.g.:
-    %s 16 16 -6 -7.5 psr_b0329+54 20240819    for bf64 at Fushan with beam0(EW) = -6, beam0(NS) = -7.5
+    {pg} 16 16 -6 -7.5 psr_b0329+54 20240819    for bf64 at Fushan with beam0(EW) = -6, beam0(NS) = -7.5
+    {pg} 16 4 -7.5 -1.5 PSR_B0329+54 20250314 --site LTN --angle '-10.14 -5.23 7.24 35.24'
 
 options are:
-    -off deg            # additional offset angles of the 1D beams in deg
-                        # (default: %.1f deg)
-    -s_ew EW_sep_m      # antenna spacing in EW direction in meters
-                        # (default: %.1f m)
-    -s_ns NS_sep_m      # antenna spacing in NS direction in meters
-                        # (default = %.1f m)
+    --off deg            # additional offset angles of the 1D beams in deg
+                        # (default: {theta_off_deg_1d:.1f} deg)
     --site SITE         # predefined site name (e.g., fus, ltn)
-                        # (default: %s)
+                        # (default: {sitename})
+    --s_ew EW_sep_m     # antenna spacing in EW direction in meters
+                        # (default: {sep1:.1f} m)
+    --s_ns NS_sep_m     # antenna spacing in NS direction in meters
+                        # (default: {sep2:.1f} m)
+                        # For Nantou (--site ltn), default = 2 m
     --caldate YYMMDD    # the date when the calibration data was taken
-                        # (default: %s)
+                        # (default: {calstr})
     --rot DEG           # array misalignment angle in degree
-                        # (default: Fushan = -3; Nantou = +0.5)
-    --scale SCALE       # scale factor
-                        # (default: 1)
+                        # (default: Fushan = -3; Nantou = +0.5; Green Island: = +1.7)
     --noatten           # do not consider antenna attenuation
     --acenter E N       # antenna pointing center in EW and NS (deg)
-    --hwhm EW NS        # change the E-W and N-S beam half width at half maximum (in deg)
-                        # default: %d %d
+    --hwhm EW NS        # change the E-W and N-S beam half width at half maximum of antenna , assuming Gaussian beam (in deg)
+                        # default: {Ehwhm} {Hhwhm}
+    --ant antenna_type  # 'MMLPDA', 'ASIAALPDA', 'MED'  (default: {antenna_type})
     --angle 'deg0 deg1 deg2 ...'
                         # fixed angles for the 2nd beamforming matrix
                         # The number of degrees should be the same as <nRow>
                         # (default: automatically calculated using <beam0_BFM2d>)
+    --utcoff UTCOffset_hr  # UTC offset in hour for time zone: affect the time axis and the time of output file (default: {UTCOffset_hr})
+    --start HHMMSS      # start time for data recording in HHMMSS or yyyymmdd_HHMMSS format
+                        # Use YYYYMMDD_HHMMSS if the start date differs from <date>
+                        # (default: 4 hours behind the transit time)
+    --end HHMMSS        # end time for data recording in HHMMSS or yyyymmdd_HHMMSS format
+                        # Use YYYYMMDD_HHMMSS if the end date differs from <date>.
+                        # (default: 4 hours ahead of the transit time)
     --tlim tr_low tr_hi # plot time range in hours from transit time
-                        # (%.1f %.1f)
+                        # If --start or --end is given, --tlim will be adjusted.
+                        # (default: {tlim[0]:.1f} {tlim[1]:.1f})
     --sign S            # BFM1 convention (1 or -1)
-                        # (%d)
+                        # (default: {sign})
+    --tsamp t_samp_s    # Time resolution in seconds.
+                        # The smaller the t_samp_s, the longer the script takes.
+                        # (default: {t_samp_s} seconds)
     --n1 nBeam1         # number of beams in 1st beamform (default: nAnt)
     --n2 nBeam2         # number of beams in 2nd beamform (default: nRow)
-    --no_freq2          # disable the freq^2 scaling of SNR
-    --chlim MIN MAX     # specify a channel range to compute avg sensitivity
-    --save              # save the profiles into a .npz file
-''' % (pg, pg, theta_off_deg_1d, sep1, sep2, sitename, calstr, Ehwhm, Hhwhm, tlim[0], tlim[1], sign)
+    --flim fmin fmax    # Frequency range in MHz
+                        # (default: {fmin} {fmax})
+    --norm              # Plot intensity after normalization to the max(intensity)
+                        # (default: no normalization)
+''' 
 
 if (len(inp)<1):
     sys.exit(usage)
 
 while(inp):
     k = inp.pop(0)
-    if (k == '-s_ew'):
+    if (k == '--s_ew'):
         sep1 = float(inp.pop(0))
-    elif (k == '-s_ns'):
+    elif (k == '--s_ns'):
         sep2 = float(inp.pop(0))
-    elif (k == '-off'):
+    elif (k == '--off'):
         theta_off_deg_1d = float(inp.pop(0))
     elif (k == '--site'):
         sitename = inp.pop(0)
@@ -139,6 +184,14 @@ while(inp):
     elif (k == '--hwhm'):
         Ehwhm = float(inp.pop(0))   # EW beam width
         Hhwhm = float(inp.pop(0))   # NS beam width
+        antenna_type = 'user_defined' 
+    elif (k == '--ant'):
+        antenna_type = inp.pop(0)
+        if antenna_type not in Antenna:
+            print(f"Warning: '{antenna_type}' not found in pre-defined antennas. Use default one  with HWHM:  {Ehwhm:.1f} x {Hhwhm:1f} deg")
+        else:
+            Ehwhm = Antenna[antenna_type]['Ehwhm']
+            Hhwhm = Antenna[antenna_type]['Hhwhm']
     elif (k == '--noatten'):
         cal_atten = False
         attinfo = 'noatten'
@@ -151,12 +204,27 @@ while(inp):
     elif (k == '--tlim'):
         tlim[0] = float(inp.pop(0))
         tlim[1] = float(inp.pop(0))
+    elif (k == '--utcoff'):
+        UTCOffset_hr = int(inp.pop(0))
+    elif (k == '--start'):
+        t_rec_start = str(inp.pop(0))
+        if len(t_rec_start) not in (15, 6): sys.exit('The format of --start is wrong.')
+    elif (k == '--end'):
+        t_rec_end = str(inp.pop(0))
+        if len(t_rec_end) not in (15, 6): sys.exit('The format of --end is wrong')
     elif (k == '--sign'):
         sign = int(inp.pop(0))
+    elif (k == '--tsamp'):
+        t_samp_s = int(inp.pop(0))
     elif (k == '--n1'):
         nBeam1 = int(inp.pop(0))
     elif (k == '--n2'):
         nBeam2 = int(inp.pop(0))
+    elif (k == '--flim'):
+        fmin = float(inp.pop(0))
+        fmax = float(inp.pop(0))
+    elif (k == '--norm'):
+        norm_int = True
     elif (k == '--no_freq2'):
         scale_snr = False
     elif (k == '--chlim'):
@@ -164,98 +232,75 @@ while(inp):
         chlim[1] = int(inp.pop(0))
     elif (k == '--save'):
         saveNPZ = True
-    elif (k.startswith('-')):
+    #elif (k.startswith('-')): #this confuses with negative numbers
+    elif (k.startswith('--')):
         sys.exit('unknown option: %s'%k)
     else:
-        nAnt = int(k) # 16
-        nRow = int(inp.pop(0)) # 16
-        beam01 = float(inp.pop(0)) # -6
+        #nAnt = int(k) # 16
+        #nRow = int(inp.pop(0)) # 16
+        beam01 = float(k) #float(inp.pop(0)) # -6
         beam02 = float(inp.pop(0)) # -7.5
         targetname = str(inp.pop(0))
         obsdate = str(inp.pop(0))
-        obsdt = datetime.strptime(obsdate, '%Y%m%d') - timedelta(hours=8)
+        obsdt = datetime.strptime(obsdate, '%Y%m%d') - timedelta(hours=UTCOffset_hr)
         calstr = obsdate
+
+dur_hr = tlim[1] - tlim[0] # duration in hours
+
+print(f'UTC offset: {UTCOffset_hr} hour')
+
+
+
+# Overwrite current setting if station name is found
+station_config = GetStationConfig(sitename)
+print(f'Station Config for {sitename}: ', station_config)
+if station_config:
+    sitename = station_config["Name"]
+    theta_rot_deg = station_config["Rotate_deg"]
+    # overwrite the arguments
+    nAnt    = station_config["NAntPerRow"]
+    nRow    = station_config["NRow"]
+else:
+    sys.exit('Invalid site name: %s' % sitename)
 
 if 'angle' in locals():
     if (len(angle) != nRow):
         sys.exit('Check angle: len(angle) != nRow')
 
+# antenna radiation pattern
 attinfo = 'att%dn%d' % (Ehwhm, Hhwhm)
 if (nBeam1 is None):
     nBeam1 = nAnt
 if (nBeam2 is None):
     nBeam2 = nRow
 
-if sitename.lower() in ['fus', 'fushan']:
-    sitename = 'Fushan'
-if sitename.lower() in ['ltn', 'longtien', 'nantou']:
-    sitename = 'Longtien'
-if sitename.lower() in ['grn', 'lyudao']:
-    sitename = 'Lyudao'
-
-if (theta_rot_deg is None):
-    if (sitename.lower() == 'fushan'):
-        theta_rot_deg = -3.0
-    elif (sitename.lower() == 'longtien'):
-        theta_rot_deg = +0.5
-        sep2 = 2.0
-    elif (sitename.lower() == 'lyudao'):
-        theta_rot_deg = +1.7
-        sep2 = 1.0
-    elif (sitename.lower() == 'ogasawara'):
-        theta_rot_deg = -5.5
-    else:
-        theta_rot_deg = 0.
 
 
-print('scale =', scale)
+#print('scale =', scale)
     
-if scale==0:
-    print('!!! Confirm that SCALE = 0')
+#if scale==0:
+#    print('!!! Confirm that SCALE = 0')
 
 
-#fMHz = np.linspace(400,800, nChan, endpoint=False) 
-fMHz = np.linspace(400,800, nChan, endpoint=False) 
-freq = fMHz * 1e6
-lamb = 2.998e8 / (fMHz * 1e6)
+freq_MHz = np.linspace(fmin, fmax, nChan, endpoint=False) 
+freq_Hz = freq_MHz * 1e6
+lamb = 2.998e8 / (freq_MHz * 1e6)
 lamb0 = lamb[0]
 
-# Read coordinates of Fushan and Nantou
-tmp = {}
-if sitename.lower() == 'fushan':
-    tmp['LAT'] = '24:45:23.41411'
-    tmp['LON'] = '121:34:53.93382'
-    tmp['ELV'] = 642.9882
-
-if sitename.lower() == 'longtien':
-    tmp['LAT'] = '23:42:52.49877'
-    tmp['LON'] = '120:49:27.77502'
-    tmp['ELV'] = 878.7997
-
-if sitename.lower() == 'lyudao':
-    tmp['LAT'] = '+22.6750'
-    tmp['LON'] = '121.5007'
-    tmp['ELV'] = 15.0
-
-if sitename.lower() == 'ogasawara':
-    tmp['LON']  = '142.216932'
-    tmp['LAT']  = '+27.092032'
-    tmp['ELV']  = 261.459
 
 
-if len(tmp.keys()) == 0:
-    sys.exit('check sitename: %s' % sitename)
+#if len(tmp.keys()) == 0:
+#    sys.exit('check sitename: %s' % sitename)
 
-if sitename.lower() in ['ltn', 'longtien', 'nantou']:
-    sep2 = 2
-    print('change sep2 to 2')
 
 obs = ephem.Observer()
 obs.date = obsdt
 obs.epoch = '2000'
-obs.lon = tmp['LON']
-obs.lat = tmp['LAT']
-obs.elevation = float(tmp['ELV'])
+
+# use general config file
+obs.lon = station_config['Longitude']
+obs.lat = station_config['Latitude']
+obs.elevation = float(station_config['Elevation'])
 
 obs.pressure = 1013 # mBar
 obs.temp = 25 # Celsius
@@ -332,16 +377,16 @@ beam_angle_1d_az[np.where(beam_angle_1d_deg>=0)] = np.radians(270)
 beam_angle_1d_az[np.where(beam_angle_1d_deg<0)] = np.radians(90)
 
 sin_theta_m = sin_theta_m1_ori
-BFM1 = np.zeros((nRow,nBeam1,nAnt,nChan), dtype=complex)
+BFM1 = np.zeros((nBeam2,nBeam1,nAnt,nChan), dtype=complex)
 
 
 #for i in range(4):
 for i in range(nRow):
-    BFM1[i] = np.exp(sign*2.j*np.pi*pos0[i,:,0].reshape((1,nAnt,1))*sin_theta_m.reshape((nBeam1,1,1)) / 2.998e8 * freq.reshape((1, 1, nChan)))
+    BFM1[i] = np.exp(sign*2.j*np.pi*pos0[i,:,0].reshape((1,nAnt,1))*sin_theta_m.reshape((nBeam1,1,1)) / 2.998e8 * freq_Hz.reshape((1, 1, nChan)))
 
 #BFM1 *= 127/scale ## ? not sure
 BFM1 /= nAnt
-if (sign==-1):
+if (sign == -1):
     BFM1 = np.flip(BFM1, axis=1)
 
 #sin_theta_m = sin_theta_m2_ori * (sep2/0.5)
@@ -350,7 +395,7 @@ sin_theta_m = sin_theta_m2_ori
 BFM2 = np.zeros((nBeam2,nRow,nChan), dtype=complex)
 
 BTau_s = pos0[:,0,1].reshape((1,nRow,1))*sin_theta_m.reshape((nBeam2,1,1))/2.998e8
-BFM2 = np.exp(-1.j*2.*np.pi*BTau_s*freq.reshape((1,1,nChan)))
+BFM2 = np.exp(-1.j*2.*np.pi*BTau_s*freq_Hz.reshape((1,1,nChan)))
 #BFM2 *= scale
 BFM2 /= nRow
 BFM2 = BFM2.transpose((2,1,0))
@@ -360,7 +405,7 @@ del sin_theta_m, BTau_s
 
 # calculate beam pattern
 
-nSky = 960
+nSky = int((dur_hr*3600+120)/t_samp_s)
 
 inVolt_all = np.zeros((nRow,nAnt,nSky,nChan), dtype=complex)
 
@@ -385,16 +430,29 @@ else:
 
     body.compute(obs)
 
-t_trans = obs.next_transit(body)
-t_trans = ephem.localtime(t_trans)
-print(targetname, 'transit at', t_trans, '(local time)')
-t_trans_utc = datetime.utcfromtimestamp(t_trans.timestamp())
-t_start = t_trans_utc + timedelta(hours=tlim[0], minutes=0)
-t_end   = t_trans_utc + timedelta(hours=tlim[1], minutes=0)
+t_trans = obs.next_transit(body) #UTC Date
+#t_trans = ephem.localtime(t_trans)
+#t_trans_utc = datetime.utcfromtimestamp(t_trans.timestamp())
+
+# UTC datetime
+t_trans_utc = t_trans.datetime()
+
+# local datetime (manual offset)
+t_trans_local = t_trans_utc + timedelta(hours=UTCOffset_hr)
+
+print(f'{targetname} transit at {t_trans_local} (local time UTC{UTCOffset_hr:+d} )')
+
+
+
+#t_start = t_trans_utc + timedelta(hours=tlim[0], minutes=0)
+#t_end   = t_trans_utc + timedelta(hours=tlim[1], minutes=0)
 #t_start = t_trans_utc - timedelta(hours=4)
+t_start = (t_trans_utc + timedelta(hours=tlim[0])).replace(second=0, microsecond=0)
+t_end = (t_trans_utc + timedelta(hours=tlim[1])).replace(second=0, microsecond=0)
 #t_end   = t_trans_utc + timedelta(hours=4)
 
-ut2 = np.linspace(t_start.timestamp(), t_end.timestamp(), nSky)
+
+ut2 = np.linspace(t_start.timestamp(), (t_end+timedelta(minutes=2)).timestamp(), nSky, endpoint=False) # +2min to cover entire x axis
 ut2 = [datetime.fromtimestamp(ts) for ts in ut2]; ut2 = np.array(ut2)
 #ut_epoch = Time(ut2, 'datetime').to_value('unix')
 
@@ -423,15 +481,15 @@ x = r*np.sin(az)
 y = r*np.cos(az)
 
 unitVec = np.array([x,y,z])
-Tau_m = np.dot(pos, unitVec)
-Tau_s = Tau_m / 2.
+#Tau_m = np.dot(pos, unitVec)
+#Tau_s = Tau_m / 2.
 
 inVolt = np.zeros((nRow,nAnt,nSky,nChan), dtype=complex)
 
 for r in range(nRow):
     Tau_m = np.dot(pos[r], unitVec)
     Tau_s = Tau_m / 2.998e8
-    phi = 2.*np.pi*Tau_s.reshape((nAnt,nSky,1))*freq.reshape((1,1,nChan))
+    phi = 2.*np.pi*Tau_s.reshape((nAnt,nSky,1))*freq_Hz.reshape((1,1,nChan))
     inVolt[r] = np.exp(1.j*phi)
 
 delaz = az.copy()
@@ -457,7 +515,7 @@ if cal_atten:
     att0 = Eatt*Hatt
     inVolt *= att0[np.newaxis,np.newaxis,:,np.newaxis]
 
-outVolt = np.zeros((nRow, nBeam1, nSky, nChan), dtype=complex)
+outVolt = np.zeros((nBeam2, nBeam1, nSky, nChan), dtype=complex)
 
 for ch in range(nChan):
     tmp = np.empty((nRow,nBeam1,nSky), dtype=complex)
@@ -475,7 +533,7 @@ outInt1 = np.abs(outVolt)**2; outInt1 = np.flip(outInt1, axis=1)
 
 tmp = np.abs(outVolt)**2
 if (scale_snr):
-    tmp /= (fMHz/400.)**2
+    tmp /= (freq_MHz/400.)**2
 #outInt = np.ma.array(tmp.mean(axis=3), mask=False); outInt = np.flip(outInt, axis=1)
 outInt = np.ma.array(tmp[:,:,:,chlim[0]:chlim[1]].mean(axis=3), mask=False)
 outInt = np.flip(outInt, axis=1)
@@ -485,8 +543,9 @@ beam_int = outInt.copy()
         
 del inVolt, outVolt, outInt1, outInt
 
-max_val = np.max(beam_int)
-#beam_int = beam_int / max_val
+if norm_int:
+    max_val = np.max(beam_int)
+    beam_int = beam_int / max_val
 
 a1 = beam_int.copy()
 
@@ -503,20 +562,40 @@ fig, ax = plt.subplots(1, 1, figsize=(14,4))
 
 for i in range(nBeam1):
     for r in range(nBeam2):
-        ax.plot(ut2 + timedelta(hours=8), a1[r,i,:], ls='-', color=colors[r])
+        ax.plot(ut2 + timedelta(hours=UTCOffset_hr), a1[r,i,:], ls='-', color=colors[r])
     
     max_bid = np.argmax(np.max(a1[:,i], axis=1))
     #print(i, max_bid)
     tmp = np.where(a1[max_bid,i,:] == np.max(a1[max_bid,i,:]))[0][0]
-    ax.text((ut2+timedelta(hours=8))[tmp], a1[max_bid,i,:][tmp], i)
+    ax.text((ut2+timedelta(hours=UTCOffset_hr))[tmp], a1[max_bid,i,:][tmp], i)
 
 
 
-f_out_name = 'times_%s_%s_%s_%dx%d_b0_%.1f' % (targetname, int(obsdate), sitename, nBeam1, nBeam2, beam01)
+# setting time axis
+t_start += timedelta(hours=UTCOffset_hr)
+t_end += timedelta(hours=UTCOffset_hr)
+x_min = t_trans_utc + timedelta(hours=tlim[0]+UTCOffset_hr)
+x_max = t_trans_utc + timedelta(hours=tlim[1]+UTCOffset_hr)
 
-f_out_txt = '%s.txt'% f_out_name
+if 't_rec_start' in globals():
+    if len(t_rec_start) == 15:
+        t_start = datetime.strptime(t_rec_start, '%Y%m%d-%H%M%S')
+    if len(t_rec_start) == 6:
+        t_start = datetime.strptime(obsdate+'-'+t_rec_start, '%Y%m%d-%H%M%S')
+    x_min = t_start
+if 't_rec_end' in globals():
+    if len(t_rec_end) == 15:
+        t_end = datetime.strptime(t_rec_end, '%Y%m%d-%H%M%S')
+    if len(t_rec_end) == 6:
+        t_end = datetime.strptime(obsdate+'-'+t_rec_end, '%Y%m%d-%H%M%S')
+    x_max = t_end
+
+# png, txt, npz files
+OutFilePrefix = 'times_%s_%s_%s_%dx%d_b0_%.2f_%.2f_utc_%d' % (targetname, int(obsdate), sitename, nBeam1, nBeam2, beam01, beam02, UTCOffset_hr)
+
+f_out_txt = '%s.txt' % (OutFilePrefix)
 with open(f_out_txt, 'w') as f:
-    f.write('#%s transit at %s (local time)\n#\n' % (targetname, t_trans))
+    f.write('#%s %s\ntransit at %s (local time UTC%+d)\n#\n' % (targetname, sitename, t_trans_local, UTCOffset_hr))
     f.write('#start_time end_time beam_id\n')
 
 b_start_arr = []
@@ -525,10 +604,12 @@ max_bid_arr = []
 
 i = nBeam1-1
 max_bid = np.argmax(np.max(a1[:,i], axis=1))
-print('i=%d'%nBeam1, max_bid, a1[max_bid,i].max())
+#print('i=%d'%nBeam1, max_bid, a1[max_bid,i].max())
 j = np.where(a1[max_bid,i,:] > 0.15*a1[max_bid,i].max())[0][0]
-b_start = ((ut2+timedelta(hours=8))[j]).strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
+b_start = (ut2+timedelta(hours=UTCOffset_hr))[j]
+#.strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
 
+# SH: why #0 beam is treated separately?
 for i in range(nBeam1-1, 0, -1):
     max_bid = np.argmax(np.max(a1[:,i], axis=1))
     y1 = a1[max_bid,i]
@@ -538,58 +619,115 @@ for i in range(nBeam1-1, 0, -1):
     y1.mask = True; y1.mask[j1:j2] = False
     y2.mask = True; y2.mask[j1:j2] = False
     j = np.ma.argmin(np.ma.abs(y1-y2))
-    b_end = ((ut2+timedelta(hours=8))[j]).strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
-    print('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, b_start, b_end))
+    
+    b_end = (ut2+timedelta(hours=UTCOffset_hr))[j]
+    #.strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
+
+    # ensure the time is in range for observation scheduling
+    if (b_end <= t_start) or (b_start >= t_end): 
+        b_start = b_end
+        continue
+    elif (b_start < t_start): b_start = t_start
+    elif (b_end > t_end): b_end = t_end
+
+    b_start_str = b_start.strftime('%Y%m%d_%H%M%S')
+    b_end_str = b_end.strftime('%Y%m%d_%H%M%S')
+
+    print('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, b_start_str, b_end_str))
     #with open(f_out_txt, 'a') as f:
     #    f.write('Beam %03d (row %d, beam %02d): %s - %s\n' % (max_bid*16+i, max_bid, i, b_start, b_end))
     #print('%s %s %d' % (b_start, b_end, max_bid*16+i))
     with open(f_out_txt, 'a') as f:
-        f.write('%s %s %d\n' % (b_start, b_end, max_bid*nBeam1+i))
-    b_start_arr.append(b_start)
-    b_end_arr.append(b_end)
+        f.write('%s %s %d\n' % (b_start_str, b_end_str, max_bid*nBeam1+i))
+
+    # NPZ output
+    b_start_arr.append(b_start_str)
+    b_end_arr.append(b_end_str)
     max_bid_arr.append(max_bid*nBeam1+i)
 
     b_start = b_end
 
-i = 0
-max_bid = np.argmax(np.max(a1[:,i], axis=1))
-j = np.where(a1[max_bid,i,:] > 0.15*a1[max_bid,i].max())[0][-1]
-b_end = ((ut2+timedelta(hours=8))[j]).strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
-print('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, b_start, b_end))
-#with open(f_out_txt, 'a') as f:
-#    f.write('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*16+i, max_bid, i, b_start, b_end))
-#print('%s %s %d' % (b_start, b_end, max_bid*16+i))
-with open(f_out_txt, 'a') as f:
-    f.write('%s %s %d' % (b_start, b_end, max_bid*nBeam1+i))
+#i = 0
+for i in [0]:
+    max_bid = np.argmax(np.max(a1[:,i], axis=1))
+    j = np.where(a1[max_bid,i,:] > 0.15*a1[max_bid,i].max())[0][-1]
+    b_end = ((ut2+timedelta(hours=UTCOffset_hr))[j])
+    #.strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
+    if (b_end <= t_start) or (b_start >= t_end): continue
+    elif (b_start < t_start): b_start = t_start
+    elif (b_end > t_end): b_end = t_end
 
-b_start_arr.append(b_start) # last beam
-b_end_arr.append(b_end)
-max_bid_arr.append(max_bid*nBeam1+i)
+    b_start_str = b_start.strftime('%Y%m%d_%H%M%S')
+    b_end_str = b_end.strftime('%Y%m%d_%H%M%S')
+    print('Beam %03d (row %02d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, b_start_str, b_end_str))
+    #with open(f_out_txt, 'a') as f:
+    #    f.write('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*16+i, max_bid, i, b_start, b_end))
+    #print('%s %s %d' % (b_start, b_end, max_bid*16+i))
+    with open(f_out_txt, 'a') as f:
+        f.write('%s %s %d' % (b_start_str, b_end_str, max_bid*nBeam1+i))
+
+    b_start_arr.append(b_start) # last beam
+    b_end_arr.append(b_end)
+    max_bid_arr.append(max_bid*nBeam1+i)
+
 
 b_start_arr = np.array(b_start_arr)
 b_end_arr = np.array(b_end_arr)
 max_bid_arr = np.array(max_bid_arr)
 
-ax.set_xlim([t_trans_utc + timedelta(hours=tlim[0]+8), t_trans_utc + timedelta(hours=tlim[1]+8)])
-ax.axvline(x=t_trans, color='limegreen', lw=10, zorder=0, alpha=0.3)
+#ax.set_xlim([t_trans_utc + timedelta(hours=tlim[0]+ UTCOffset_hr), t_trans_utc + timedelta(hours=tlim[1]+8)])
+ax.set_xlim(x_min, x_max)
+
+# label E-W beams
+for i in range(nBeam1):
+    max_bid = np.argmax(np.max(a1[:,i], axis=1))
+    tmp = np.where(a1[max_bid,i,:] == np.max(a1[max_bid,i,:]))[0][0]
+    label_loc = (ut2+timedelta(hours=UTCOffset_hr))[tmp]
+    if x_min <= label_loc <= x_max:
+        ax.text(label_loc, a1[max_bid,i,:][tmp], i)
+
+
+ax.axvline(x=t_trans_local, color='limegreen', lw=10, zorder=0, alpha=0.3)
 lines = [Line2D([0], [0], linewidth=2, color=x) for x in colors]
 labels = ['row %d' % x for x in range(nRow)]
 labels.extend(['transit'])
 lines.append(Line2D([0.4, 0.5], [0, 0], linewidth=6, color='limegreen'))
 ax.legend(lines, labels[:len(lines)], handlelength=2.0, handletextpad=0.5, ncols=2, fontsize=9, loc='upper left', bbox_to_anchor=(1, 1))
-ax.set_xlabel('Local time')
+ax.set_xlabel(f'Local time (UTC{UTCOffset_hr:+d})')
 ax.xaxis.set_major_formatter(mdates.DateFormatter('%m/%d %H:%M'))
 ax.xaxis.set_minor_locator(mdates.MinuteLocator(byminute=np.arange(0,60,5)))
 ax.grid(which='both')
-if ('angle' in locals()):
-    ax.set_title('%s, %s (theta_rot = %.2f deg), theta_2nd = %s deg\ntransit at %s, 1st_beam0 = %.2f, 2nd_beam0 = %.2f, theta_off_EW = %.2f deg, %s' % (targetname, sitename, theta_rot_deg, angle, t_trans.strftime('%Y-%m-%d %H:%M:%S'), beam01, beam02, theta_off_deg_1d, attinfo))
+
+# common title with Latex for symbols
+title1 = (
+    rf"{targetname} at {sitename} "
+    rf"($\theta_{{\mathrm{{rot}}}} = {theta_rot_deg:.2f}^\circ$), "
+    rf"transit at {t_trans_local:%Y-%m-%d %H:%M:%S}, "
+)
+
+if 'angle' in locals(): 
+    angle_str = ', '.join([f"{x}^\\circ" for x in angle])
+    title1 += rf"$\theta_{{\mathrm{{2nd}}}} = ({angle_str})$, "
+    
+
+title2 = (
+    rf"beam0: (1st={beam01:.2f}$^\circ$, 2nd={beam02:.2f}$^\circ$), " 
+    rf"$\theta_{{\mathrm{{off,EW}}}} = {theta_off_deg_1d:.2f}^\circ$, " 
+    rf"antenna HWHM = ${Ehwhm}^\circ \times {Hhwhm}^\circ$"
+)
+# \n not working in raw string 'r'
+ax.set_title(title1 + "\n" + title2)
+'''
+if ('angle' in locals()): 
+    ax.set_title(rf'{targetname}, {sitename} ($\theta_\mathrm{{rot}}$ = {theta_rot_deg:.2f}$\circ$), theta_2nd = {angle} deg \ntransit at {t_trans_local.strftime('%Y-%m-%d %H:%M:%S')}, 1st_beam0 = {beam01:.2f}, 2nd_beam0 = {beam02:.2f}$\circ$, $\theta_{off,EW}$ = {theta_off_deg_1d:.2f} \circ$, {attinfo}'
+                 
 else: 
-    ax.set_title('%s, %s (theta_rot = %.2f deg)\ntransit at %s, 1st_beam0 = %.2f, 2nd_beam0 = %.2f, theta_off_EW = %.2f deg, %s' % (targetname, sitename, theta_rot_deg, t_trans.strftime('%Y-%m-%d %H:%M:%S'), beam01, beam02, theta_off_deg_1d, attinfo))
-ax.tick_params(which='major', length=8)
+    ax.set_title('%s, %s (theta_rot = %.2f deg)\ntransit at %s, 1st_beam0 = %.2f, 2nd_beam0 = %.2f, theta_off_EW = %.2f deg, %s' % (targetname, sitename, theta_rot_deg, t_trans_local.strftime('%Y-%m-%d %H:%M:%S'), beam01, beam02, theta_off_deg_1d, attinfo))
+'''
+
+ax.tick_params(which='major', length=UTCOffset_hr)
 fig.tight_layout()
-#fig.savefig('times_%s_%s_%s_%dx%d_b0_%.1f.png' % (targetname, int(obsdate), sitename, nBeam1, nBeam2, beam01))
-f_out_png = '%s.png'%f_out_name
-fig.savefig(f_out_png)
+fig.savefig('%s.png' % (OutFilePrefix))
 plt.show()
 
 
