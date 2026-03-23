@@ -54,6 +54,7 @@ read_raw = True
 #flim = [400, 800]
 flim = [300, 700]
 ant_flag = []
+chlim = None
 
 ## arbitrary number
 f410 = 5.0e5 # Jy
@@ -96,6 +97,8 @@ options are:
                 # default: f410=%.4e f610=%.4e
     --flim FMIN FMAX
                 # specify the frequency range in MHz (full 1024ch range)
+    --chlim CHMIN CHMAX
+                # specify the delay fitting channel range
     --bmax BB   # specify the beam number to analyze
                 # default: auto-determine based on integrated intensity
     --hwhm EW NS # enter the EW and NS hphm beam width in deg
@@ -131,6 +134,10 @@ while (inp):
         fmin = float(inp.pop(0))
         fmax = float(inp.pop(0))
         flim = [fmin, fmax]
+    elif (k == '--chlim'):
+        ch1 = int(inp.pop(0))
+        ch2 = int(inp.pop(0))
+        chlim = [ch1, ch2]
     elif (k == '--hwhm'):
         EW_hwhm = float(inp.pop(0))
         NS_hwhm = float(inp.pop(0))
@@ -141,6 +148,13 @@ while (inp):
     else:
         files.append(k)
 
+if (chlim is None):
+    ch1 = 0
+    ch2 = nChan0
+else:
+    ch1 = chlim[0]
+    ch2 = chlim[1]
+chlim = [ch1, ch2]
 
 nBl = int(nFPGA*(nFPGA-1)/2)
 #nPack = nFPGA * nFrame // 4 ## bf256
@@ -205,7 +219,7 @@ if (read_raw):
 
 
 
-    inten1 = np.mean(np.ma.abs(spec1)**2, axis=3)    # shape(nFPGA, nFrame, nAnt)
+    inten1 = np.mean(np.ma.abs(spec1[:,:,:,chlim[0]:chlim[1]])**2, axis=3)    # shape(nFPGA, nFrame, nAnt)
     xx = np.arange(nFrame)
     ## estimate the peak beam
     inten2 = np.mean(inten1, axis=(0,1))    # shape(nAnt,) or nBeam
@@ -532,6 +546,8 @@ print('tauGeo (ns):', ns_tau)
 
 # correct for geometric delay
 VrefTau = Vref1p * np.exp(-2j*np.pi*ns_tau.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)
+nChan1 = ch2-ch1
+VrefTau = VrefTau[ch1:ch2]
 
 ofile = '%s/eigenvector_TauGeo_correct.npy'%cdir
 np.save(ofile, VrefTau.data)
@@ -540,10 +556,15 @@ np.save(ofile, VrefTau.data)
 fig, s2d = plt.subplots(2,2,figsize=(10,8), sharex=True, sharey=True)
 sub = s2d.flatten()
 med_auto = np.ma.median(auto, axis=0, keepdims=True)
-auto2 = auto/med_auto
+auto2 = (auto/med_auto)[:,ch1:ch2]
+med_auto2 = np.median(auto2[:,ch1:ch2], axis=1)
+med_Vamp = np.median(np.abs(VrefTau)[ch1:ch2], axis=0)
 #normCorr = (np.abs(VrefTau.T)/0.25 / auto2 / del_SEFD).reshape(1,nAnt,nChan0)
-normCorr = (np.abs(VrefTau.T)/0.5 / auto2 * wt_SEFD.reshape(nFPGA,1)).reshape(1,nFPGA,nChan0)
-phiCorr = np.exp(-1.j * np.angle(VrefTau.T)).reshape(1,nFPGA,nChan0)
+normCorr = np.zeros((1,nFPGA,nChan0))
+print(VrefTau.shape, auto2.shape, wt_SEFD.shape)
+normCorr[:,:,ch1:ch2] = (np.abs(VrefTau.T)/0.5 / auto2 * wt_SEFD.reshape(nFPGA,1)).reshape(1,nFPGA,nChan1)
+phiCorr  = np.zeros((1,nFPGA,nChan0), dtype=complex)
+phiCorr[:,:,ch1:ch2]  = np.exp(-1.j * np.angle(VrefTau.T)).reshape(1,nFPGA,nChan1)
 fcal2 = '%s/solution_2ndCal.npz'%(cdir,)
 np.savez(fcal2, auto2=auto2, tau_i=VrefTau, wt_SEFD=wt_SEFD, phiCorr=phiCorr, normCorr=normCorr, del_SEFD=del_SEFD)
 # auto2: relative ampld btw rows
@@ -561,11 +582,11 @@ with open(fnorm, 'w') as fh:
 
 for i in range(nFPGA):
     ax = sub[i]
-    ax.plot(fMHz, 1/auto2[i], label='rel.gain')
-    ax.plot(fMHz, np.abs(VrefTau[:,i])/0.5, label='abs(V)/0.5')
-    ax.plot(fMHz, 1/del_SEFD[i], color='g', alpha=0.5, lw=0.5, label='1/del_SEFD')
-    ax.plot(fMHz, np.ones(nChan0)*wt_SEFD[i], color='g', ls='--', label='wt_SEFD')
-    ax.plot(fMHz, normCorr[0,i], color='k', ls=':', lw=2, label='normCorr')
+    ax.plot(fMHz[ch1:ch2], 1/auto2[i], label='rel.gain')
+    ax.plot(fMHz[ch1:ch2], np.abs(VrefTau[:,i])/0.5, label='abs(V)/0.5')
+    ax.plot(fMHz[ch1:ch2], (1/del_SEFD[i])[ch1:ch2], color='g', alpha=0.5, lw=0.5, label='1/del_SEFD')
+    ax.plot(fMHz[ch1:ch2], (np.ones(nChan1)*wt_SEFD[i]), color='g', ls='--', label='wt_SEFD')
+    ax.plot(fMHz[ch1:ch2], normCorr[0,i][ch1:ch2], color='k', ls=':', lw=2, label='normCorr')
     if (i == 0):
         ax.legend()
     if (i>=2):
@@ -581,22 +602,23 @@ plt.close(fig)
 
 
 ## delay fitting
-FTVref = np.fft.fft(VrefTau, n=int(nChan0*pad), axis=0)
+FTVref = np.fft.fft(VrefTau, n=int(nChan1*pad), axis=0)
 FTVref = np.fft.fftshift(FTVref, axes=0)
-peak_lag = np.abs(FTVref).argmax(axis=0) - int(pad*nChan0/2)
+peak_lag = np.abs(FTVref).argmax(axis=0) - int(pad*nChan1/2)
 #print(peak_lag)
-peak_ns = peak_lag * 1e9/400e6 / pad # convert to ns
+#peak_ns = peak_lag * 1e9/400e6 / pad # convert to ns
+peak_ns = peak_lag * 1e9/(400e6*nChan1/nChan0*pad)
 #print(peak_ns)
 # coarse delay correction
-VrefC = VrefTau*np.exp(-2j*np.pi*peak_ns.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)
+VrefC = VrefTau*np.exp(-2j*np.pi*peak_ns.reshape((1,-1))*fMHz[ch1:ch2].reshape((-1,1))*1e-3)
 # fine delay correction
 #medphi = np.median(np.angle(VrefC), axis=0)
 med_r = np.median(VrefC.real, axis=0)
 med_i = np.median(VrefC.imag, axis=0)
 medphi = np.angle(med_r + 1.j*med_i)
-dtau = medphi / (2.*np.pi) * lam.mean() / 2.998e8 * 1e9 # ns
+dtau = medphi / (2.*np.pi) * lam[ch1:ch2].mean() / 2.998e8 * 1e9 # ns
 #print(dtau)
-VrefF = VrefC*np.exp(-2j*np.pi*dtau.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)
+VrefF = VrefC*np.exp(-2j*np.pi*dtau.reshape((1,-1))*fMHz[ch1:ch2].reshape((-1,1))*1e-3)
 tauCorr = -(peak_ns + dtau)
 #tauStr = ', '.join(['%.3f'%x for x in tauCorr])
 
@@ -616,9 +638,9 @@ sub = s2d.flatten()
 
 for i in range(nFPGA):
     ax = sub[i]
-    ax.plot(fMHz, np.angle(VrefTau[:,i]), color='gray', marker='.', ls='none', label='rem_geo')
-    ax.plot(fMHz, np.angle(VrefC[:,i]), color='orange', marker='.', ls='none', label='rem_coarse')
-    ax.plot(fMHz, np.angle(VrefF[:,i]), color='b', marker='.', ls='none', label='rem_fine')
+    ax.plot(fMHz[ch1:ch2], np.angle(VrefTau[:,i]), color='gray', marker='.', ls='none', label='rem_geo')
+    ax.plot(fMHz[ch1:ch2], np.angle(VrefC[:,i]), color='orange', marker='.', ls='none', label='rem_coarse')
+    ax.plot(fMHz[ch1:ch2], np.angle(VrefF[:,i]), color='b', marker='.', ls='none', label='rem_fine')
     ax.text(0.05, 0.90, 'tau: %.3f'%tauCorr[i], transform=ax.transAxes)
     ax.grid()
     if (i==0):
