@@ -118,6 +118,8 @@ while (inp):
         sys.exit('extra argument: %s'%k)
 
 
+pwd = os.getcwd()
+dataset = os.path.basename(pwd)
 
 chlim   = [0, nChan0]   # channel limit for spectral average, override
 
@@ -293,7 +295,7 @@ if (combine):
 
         pngp = '%s/prof_row%02d.png'%(odir2, j)
         figp, axp = plt.subplots(1,1,figsize=(12,6))
-        axp.set_title('row %d, chlim:[%d,%d]'%(j,chlim[0],chlim[1]))
+        axp.set_title('%s: row %d, chlim:[%d,%d]'%(dataset, j,chlim[0],chlim[1]))
         for ai in range(nAnt):
             ax = sub[nRow2-1-jj, ai]
             ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')

@@ -58,6 +58,8 @@ ant_flag = []
 f410 = 5.0e5 # Jy
 f610 = 7.0e5 # Jy
 
+## for IAA LPDA
+G0 = 8.0 # dB
 ## beam width
 EW_hwhm = 30 # deg, IAA
 NS_hwhm = 46 # deg, IAA
@@ -93,11 +95,16 @@ options are:
                 # default: f410=%.4e f610=%.4e
     --flim FMIN FMAX
                 # specify the frequency range in MHz (full 1024ch range)
+                # default: %.0f %.0f
+    --hwhm EW NS # enter the half width at half max beam width in deg (E-W and N-S direction)
+                # default: %.1f %.1f
+    --gant G0   # antenna forward gain
+                # default: %.1f
     --bmax BB   # specify the beam number to analyze
                 # default: auto-determine based on integrated intensity
     --copy DIR  # change the copying destination for 2nd_cal results
                 # default: %s
-''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610, cdir_path)
+''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610, flim[0], flim[1], EW_hwhm, NS_hwhm, G0, cdir_path)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -126,6 +133,11 @@ while (inp):
         fmin = float(inp.pop(0))
         fmax = float(inp.pop(0))
         flim = [fmin, fmax]
+    elif (k == '--hwhm'):
+        EW_hwhm = float(inp.pop(0))
+        NS_hwhm = float(inp.pop(0))
+    elif (k == '--gant'):
+        G0 = float(inp.pop(0))
     elif (k == '--copy'):
         cdir_path = inp.pop(0)
     elif (k.startswith('_')):
@@ -431,10 +443,10 @@ plt.close(fig)
 
 
 ## convert to Tsys
-G0 = 8.0 # dB
 gain = 10.**(G0/10.)
 
 Aeff = lam**2*gain/(4.*np.pi)  # meter^2
+Aeff *= 16 # after bf16
 scale = Aeff / (2*1.38e-23) * 1e-26
 Tsys1 = SEFD1 * scale
 
@@ -452,7 +464,7 @@ for ai in range(nFPGA-1):
         b += 1
         ax = sub[ii,jj]
         ax.plot(fMHz, Tsys1[b], 'b.', label='Tsys')
-        ax.set_ylim(0, 20)
+        ax.set_ylim(0, 300)
         ax.grid()
         
         if (ii==jj):
