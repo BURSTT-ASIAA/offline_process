@@ -39,7 +39,21 @@ def headerUnpack(header, order_off=0, verbose=0, hdver=1):
         pko = header[36] + order_off
     return clk, pko
 
-def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1, unswap=False):
+
+# 256-entry LUT: byte -> complex sample
+UNPACK_LUT = np.empty(256, dtype=np.complex64)
+for b in range(256):
+    i = b & 0x0F
+    q = (b >> 4) & 0x0F
+    if i >= 8:
+        i -= 16
+    if q >= 8:
+        q -= 16
+    UNPACK_LUT[b] = i + 1j*q
+#print('debug:', UNPACK_LUT)
+
+
+def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1, unswap=False, legacy=False):
     header = buf[:hdlen]
     tmp = headerUnpack(header, order_off=order_off, hdver=hdver)
     if (tmp is None):
@@ -48,34 +62,35 @@ def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1, unswap=Fa
         clk, pko = tmp
 
     if (bitwidth==4):
-        spec = np.zeros(bpp, dtype=np.complex64)
-        # when reading 2 channels (= 2 bytes), 
-        # the right 8-bit is even channel (e.g. ch0)
-        # the left 8-bit is odd channel (e.g. ch1)
-        #arr = struct.unpack('<%dH'%(bpp//2), buf[hdlen:])
-        arr = struct.unpack('<%dB'%(bpp), buf[hdlen:])
-        for k in range(bpp):
-            #bit16 = arr[k]
-            #bit8 = (bit16 & 0x00ff)         # for even channel
-            bit8 = arr[k]
-            bit4_i = bit8 & 0x0f
-            ai = toSigned(bit4_i, 4)
-            bit4_q = (bit8 & 0xf0) >> 4
-            aq = toSigned(bit4_q, 4)
-            if (unswap):    # use this when reading old bf data, no swapping
-                spec[k] = ai + 1.j*aq
-            else:           # for new bf data, swap even/odd channels
-                if (k%2==0):
-                    spec[k+1] = ai + 1j*aq
-                else:
-                    spec[k-1] = ai + 1j*aq
+        if (legacy):
+            spec = np.zeros(bpp, dtype=np.complex64)
+            # when reading 2 channels (= 2 bytes), 
+            # the right 8-bit is even channel (e.g. ch0)
+            # the left 8-bit is odd channel (e.g. ch1)
+            arr = struct.unpack('<%dB'%(bpp), buf[hdlen:])
+            for k in range(bpp):
+                bit8 = arr[k]
+                bit4_i = bit8 & 0x0f
+                ai = toSigned(bit4_i, 4)
+                bit4_q = (bit8 & 0xf0) >> 4
+                aq = toSigned(bit4_q, 4)
+                if (unswap):    # use this when reading old bf data, no swapping
+                    spec[k] = ai + 1.j*aq
+                else:           # for new bf data, swap even/odd channels
+                    if (k%2==0):
+                        spec[k+1] = ai + 1j*aq
+                    else:
+                        spec[k-1] = ai + 1j*aq
+        else: # LUT fast method
+                # reinterpret bytes without copying
+            arr = np.frombuffer(buf, dtype=np.uint8, count=bpp, offset=hdlen)
 
-            #bit8 = (bit16 & 0x00ff) >> 8    # for odd channel
-            #bit4_i = bit8 & 0x0f
-            #ai = toSigned(bit4_i, 4)
-            #bit4_q = (bit8 & 0xf0) >> 4
-            #aq = toSigned(bit4_q, 4)
-            #spec[2*k+1] = ai + 1.j*aq
+            # LUT decode
+            spec = UNPACK_LUT[arr]
+            # even/odd swap if required
+            if not unswap:
+                spec = spec.reshape(-1,2)[:,::-1].reshape(-1)
+
 
     elif (bitwidth==16):
         #arr = struct.unpack('>%dh'%(bpp//2), buf[hdlen:])  # wrong endian?
@@ -653,7 +668,7 @@ def decHeader2(buf, ip=False, verbose=True):
     return tmp
 
 
-def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024, ppf=2, split=False):
+def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=None, frate=400e6/1024, ppf=2, split=False):
     '''
     extract epoch time from a list of files
 
@@ -679,6 +694,8 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024
 
 
     if (hdver==2):
+        if (meta is None):
+            meta=64     # do not override if a value is passed
         prate = frate*ppf
         unix0 = None
         epoch = []
@@ -687,6 +704,7 @@ def filesEpoch(files, hdver=1, yr='23', tz=8, hdlen=64, meta=0, frate=400e6/1024
                 md = fh.read(meta)
                 hd = fh.read(hdlen)
             tmp = decHeader2(hd)
+            #print('debug:', hd, tmp)
             #ep = tmp[2]+tmp[3]+2
             #ep = tmp[2] + 2 + (tmp[0]-tmp[4])/prate
             if unix0 is None:
@@ -980,3 +998,29 @@ def metaRead(fh, meta=64, dict_out=True):
     else:
         #print(tmp)
         return tmp
+
+def readRBH(filename):
+    '''
+    decode the ring buffer header with memmap
+    '''
+    fhuge = np.memmap(filename, '<u1')
+    mdict = {}
+    mdict['server_id'] = np.frombuffer(fhuge[0:2], dtype='<u2')[0]
+    mdict['version_id'] = np.frombuffer(fhuge[2:4], dtype='<u2')[0]
+    mdict['buffer_id'] = np.frombuffer(fhuge[4:6], dtype='<u2')[0]
+    mdict['packet_size'] = np.frombuffer(fhuge[6:8], dtype='<u2')[0]
+    mdict['block_number'] = np.frombuffer(fhuge[8:10], dtype='<u2')[0]
+    mdict['beam_id'] = np.frombuffer(fhuge[10:12], dtype='<i2')[0]
+    mdict['packet_number'] = np.frombuffer(fhuge[12:16], dtype='<u4')[0]
+    mdict['head_block_id'] = np.frombuffer(fhuge[16:18], dtype='<u2')[0]
+    mdict['tail_block_id'] = np.frombuffer(fhuge[18:20], dtype='<u2')[0]
+    mdict['n_sum'] = np.frombuffer(fhuge[20:22], dtype='<u2')[0]
+    mdict['processed_block_id'] = np.frombuffer(fhuge[22:24], dtype='<u2')[0]
+    mdict['data_offset'] = np.frombuffer(fhuge[24:32], dtype='<u8')[0]
+    mdict['bitmask_offset'] = np.frombuffer(fhuge[32:40], dtype='<u8')[0]
+    mdict['beam_offset'] = np.frombuffer(fhuge[40:48], dtype='<u8')[0]
+    mdict['intensity_offset'] = np.frombuffer(fhuge[48:56], dtype='<u8')[0]
+    mdict['matrix_offset'] = np.frombuffer(fhuge[56:64], dtype='<u8')[0]
+    
+    return mdict
+
