@@ -101,11 +101,13 @@ options are:
                 # specify the delay fitting channel range
     --bmax BB   # specify the beam number to analyze
                 # default: auto-determine based on integrated intensity
+    --gant G0   # antenna forward gain in dB
+                # default: %.1f
     --hwhm EW NS # enter the EW and NS hphm beam width in deg
                 # default: %.1f %.1f
     --copy DIR  # change the copying destination for 2nd_cal results
                 # default: %s
-''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610, EW_hwhm, NS_hwhm, cdir_path)
+''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610, G0, EW_hwhm, NS_hwhm, cdir_path)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -138,6 +140,8 @@ while (inp):
         ch1 = int(inp.pop(0))
         ch2 = int(inp.pop(0))
         chlim = [ch1, ch2]
+    elif (k == '--gant'):
+        G0 = float(inp.pop(0))
     elif (k == '--hwhm'):
         EW_hwhm = float(inp.pop(0))
         NS_hwhm = float(inp.pop(0))
