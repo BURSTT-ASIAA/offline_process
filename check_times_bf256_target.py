@@ -73,6 +73,10 @@ sign=-1
 nBeam1 = None
 nBeam2 = None
 
+# arbitrary nAnt, nRow
+man_nAnt = 0
+man_nRow = 0
+
 # whether to scale the intensity by SEFD, which is proportion to freq^2
 scale_snr = True
 
@@ -119,6 +123,8 @@ e.g.:
     {pg} 16 4 -7.5 -1.5 PSR_B0329+54 20250314 --site LTN --angle '-10.14 -5.23 7.24 35.24'
 
 options are:
+    --nant nAnt         # override nAnt from site config
+    --nrow nRow         # override nRow from site config
     --off deg            # additional offset angles of the 1D beams in deg
                         # (default: {theta_off_deg_1d:.1f} deg)
     --site SITE         # predefined site name (e.g., fus, ltn)
@@ -220,6 +226,10 @@ while(inp):
         nBeam1 = int(inp.pop(0))
     elif (k == '--n2'):
         nBeam2 = int(inp.pop(0))
+    elif (k == '--nant'):
+        man_nAnt = int(inp.pop(0))
+    elif (k == '--nrow'):
+        man_nRow = int(inp.pop(0))
     elif (k == '--flim'):
         fmin = float(inp.pop(0))
         fmax = float(inp.pop(0))
@@ -269,11 +279,17 @@ if 'angle' in locals():
 
 # antenna radiation pattern
 attinfo = 'att%dn%d' % (Ehwhm, Hhwhm)
+
+# override nAnt, nRow if manually set
+if (man_nAnt > 0):
+    nAnt = man_nAnt
+if (man_nRow > 0):
+    nRow = man_nRow
+
 if (nBeam1 is None):
     nBeam1 = nAnt
 if (nBeam2 is None):
     nBeam2 = nRow
-
 
 
 #print('scale =', scale)
