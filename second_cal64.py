@@ -199,6 +199,9 @@ elif (site == 'longtien'):
     theta_rot_deg = 0.5
     sep = 2.0
 
+## added (2026-03-26, Sujin)
+if fmin == 400:
+    start_off = -2  # for bf64, 400-600MHz is order=2
 
 fMHz = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
 
@@ -215,7 +218,7 @@ if (read_raw):
         mdict0 = metaRead(fh0)
         #print(mdict0)
         data0, order0 = loadNode(fh0, 0, nPack, nFPGA=nFPGA, verbose=1, no_bitmap=no_bitmap, get_order=True)
-        start_chan = nChan * order0
+        start_chan = nChan * (order0 + start_off)
         wfreq = np.arange(start_chan, start_chan+nChan)
         print('order:', order0, data0.shape, 'time', time.time()-t0, 'sec')
         spec1[:,:,:,wfreq] = data0
