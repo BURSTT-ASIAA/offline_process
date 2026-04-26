@@ -94,18 +94,24 @@ def packetUnpack(buf, bpp, bitwidth=4, order_off=0, hdlen=64, hdver=1, unswap=Fa
 
     elif (bitwidth==16):
         #arr = struct.unpack('>%dh'%(bpp//2), buf[hdlen:])  # wrong endian?
-        arr = struct.unpack('<%dh'%(bpp//2), buf[hdlen:])
+        #arr = struct.unpack('<%dh'%(bpp//2), buf[hdlen:])  # slower compared to frombuffer
+        arr = np.frombuffer(buf, dtype='<i2', offset=hdlen)
         nsamp = bpp//4
         spec = np.zeros(nsamp, dtype=np.complex64)
-        for k in range(bpp//4):
-            #bit32 = int(arr[k])   # convert half-integer to integer (32 bits)
-            #bit16_i =  bit32 & 0x0000ffff
-            #bit16_q = (bit32 & 0xffff0000) >> 16
-            #ai = toSigned(bit16_i, 16)
-            #aq = toSigned(bit16_q, 16)
-            ai = arr[2*k]
-            aq = arr[2*k+1]
-            spec[k] = ai + 1.j*aq
+
+        if (legacy):
+            for k in range(bpp//4):
+                #bit32 = int(arr[k])   # convert half-integer to integer (32 bits)
+                #bit16_i =  bit32 & 0x0000ffff
+                #bit16_q = (bit32 & 0xffff0000) >> 16
+                #ai = toSigned(bit16_i, 16)
+                #aq = toSigned(bit16_q, 16)
+                ai = arr[2*k]
+                aq = arr[2*k+1]
+                spec[k] = ai + 1.j*aq
+        else:
+            spec.real = arr[0::2]
+            spec.imag = arr[1::2]
 
     return clk, pko, spec
 
