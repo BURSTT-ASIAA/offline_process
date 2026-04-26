@@ -232,6 +232,11 @@ def obsSite(site='fushan6'):
             obs.lat         = '+18.863546'
             obs.elevation   = 390.0
            
+        elif (site.lower() == 'lanyang'):
+            obs.long        = '121.7300'
+            obs.lat         = '+24.8240'
+            obs.elevation   = 370.0
+
         else:
             obs = None
 
