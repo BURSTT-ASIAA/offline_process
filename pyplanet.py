@@ -164,7 +164,10 @@ def obsSite(site='fushan6'):
             obs.long        = '121.5807'
             obs.lat         = '+24.7589'
             obs.elevation   = 650.0
-
+        elif (site.lower() == 'aro'):
+            obs.lat         = '+45.955618'
+            obs.long        = '-78.072771'
+            obs.elevation   = 250.0
 
         elif (site.lower() == 'fushan6' or site.lower() == 'fus'):   # site 6, 230418
 

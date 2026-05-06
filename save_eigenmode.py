@@ -61,6 +61,8 @@ NS_hwhm = 46.
 f410 = 5e5
 f610 = 7e5
 
+pad  = 32
+
 
 ant_flag = []
 nFlag   = 0
@@ -653,6 +655,20 @@ for ll in range(nLoop):
     np.save(fnpy, NLV3C2.filled())    # NLV3C includes bandpass EQ
 
 
+    ## delay fitting
+    VrefTau = LV3C.copy()
+    FTVref = np.fft.fft(VrefTau, n=int(nChan*pad), axis=0)
+    FTVref = np.fft.fftshift(FTVref, axes=0)
+    peak_lag = np.abs(FTVref).argmax(axis=0) - int(pad*nChan/2)
+    #print(peak_lag)
+    peak_ns = peak_lag * 1e9/400e6 / pad # convert to ns
+    #print(peak_ns)
+    # coarse delay correction
+    VrefC = VrefTau*np.exp(-2j*np.pi*peak_ns.reshape((1,-1))*freq.reshape((-1,1))*1e-3)
+
+
+
+
     ## relative weighting between antennas
     # median of antennas
     med_ampld = np.ma.median(savN3, axis=0)
@@ -668,8 +684,11 @@ for ll in range(nLoop):
             ax2 = sub2[ii,jj]
             ax3 = sub3[ii,jj]
             if (not ai in ant_flag):
-                ax.plot(freq, np.ma.angle(LV3[:,ai]))
-                ax.plot(freq, np.ma.angle(LV3C[:,ai]))
+                ax.plot(freq, np.ma.angle(LV3[:,ai]), label='obs')
+                ax.plot(freq, np.ma.angle(LV3C[:,ai]), label='inst.')
+                ax.plot(freq, np.ma.angle(VrefC[:,ai]), color='gray', label='resid.')
+                ax.text(0.55, 0.85, 'tau:%.2fns'%peak_ns[ai], transform=ax.transAxes, color='C1')
+                ax.set_ylim(-3.5, 4.5)
                 ax2.plot(freq, 10*np.ma.log10(np.ma.abs(LV3C[:,ai]*savN3[ai])))
                 ax3.plot(freq, 1/rel_ampld[ai], color='b', alpha=0.3)
                 ax3.axhline(1/med_rel_ampld[ai], color='b', ls='--', label='rel_norm')
@@ -677,6 +696,8 @@ for ll in range(nLoop):
                 ax3.plot(freq, 1/del_SEFD[ai], color='r', alpha=0.3)
                 ax3.axhline(wt_SEFD[ai], color='r', ls='--', label='wt_SEFD')
                 ax3.set_ylim(0,2)
+            if (ai == aref):
+                ax.legend()
 
             #ax.legend()
             ax.text(0.05, 0.85, 'Ant%02d'%ai, transform=ax.transAxes)
@@ -717,6 +738,7 @@ for ll in range(nLoop):
             NSoff_deg=NSoff,
             tauGeo_sec=tauGeo,
             tauGeo_attrs=attrs2,
+            tauI_ns=peak_ns,
             phiCorr=c_arr,
             freq_MHz=freq,
             winSec=tsec,
