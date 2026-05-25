@@ -41,7 +41,7 @@ pad  = 32   # fft padding factor; for dividing the lag sample to finer resolutio
 
 site = 'fushan6'
 src  = 'sun'
-cdir_path = '/burstt14/disk12/2nd_cal'
+cdir_path = '/burstt13/disk12/2nd_cal'
 if (not os.path.isdir(cdir_path)):
     cdir_path = '.'
 make_copy = True

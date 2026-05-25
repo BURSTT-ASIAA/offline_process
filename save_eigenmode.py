@@ -250,6 +250,8 @@ for ll in range(nLoop):
         call('mkdir %s'%cdir, shell=True)
     print('eigenmode is saved in:', fout, '...')
 
+    tag = '/'.join(os.path.abspath(cdir).split('/')[-2:])
+
 
     pos = arrayConf(arr_config, nFile, rows=rows, theta_rot=theta_rot)
     #print('debug:', 'pos.shape=',pos.shape, pos)
@@ -717,14 +719,17 @@ for ll in range(nLoop):
 
     fig.tight_layout(rect=[0,0.03,1,0.95])
     fig.subplots_adjust(wspace=0, hspace=0)
+    fig.suptitle('%s, phases'%tag)
     fig.savefig(png)
     plt.close(fig)
     fig2.tight_layout(rect=[0,0.03,1,0.95])
     fig2.subplots_adjust(wspace=0, hspace=0)
+    fig2.suptitle('%s, ampld'%tag)
     fig2.savefig(png2)
     plt.close(fig2)
     fig3.tight_layout(rect=[0,0.03,1,0.95])
     fig3.subplots_adjust(wspace=0, hspace=0)
+    fig3.suptitle('%s, scaling'%tag)
     fig3.savefig(png3)
     plt.close(fig3)
 
