@@ -222,7 +222,8 @@ elif (site == 'lyudao'): # or site == 'GRN'):
     if (arr_config == '16x1.0y0.5'):    # the default
         arr_config = '16x1.0y1.0'
         if (theta_rot is None):
-            theta_rot = +1.7   #based on photogrametry
+            #theta_rot = +1.7   #based on photogrametry
+            theta_rot = 0.0   # new IAA LPDA, 20260630
 if (theta_rot is None):
     theta_rot = 0.
 print('using theta_rot:', theta_rot)

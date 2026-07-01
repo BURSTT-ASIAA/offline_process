@@ -19,6 +19,7 @@ tmax    = 0
 nAnt    = 16
 gdiff   = np.zeros(nAnt)
 aref    = 0
+chlim   = None
 
 
 usage = '''
@@ -50,6 +51,7 @@ options are:
                         # default is 0dB for all antennas
                         # if multiple antennas are different, use --gdiff multiple times
     --aref ANT          # select reference antenna for Tau and Phi solutions
+    --chlim MIN MAX     # set channel range for SEFD and Tsys average
 
 ''' % (pg, zmin, zmax, z2min, z2max)
 
@@ -78,6 +80,10 @@ while (inp):
         gdiff[ai] = float(inp.pop(0))
     elif (k == '--aref'):
         aref = int(inp.pop(0))
+    elif (k == '--chlim'):
+        chmin = int(inp.pop(0))
+        chmax = int(inp.pop(0))
+        chlim = [chmin,chmax]
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -97,6 +103,9 @@ for fvis in files:
     nWin, nAnt, nChan = winNFT.shape
     gdiff = gdiff[:nAnt]    # truncate the array if fewer antennas were selected
     print('gdiff:', gdiff)
+
+    if (chlim is None):
+        chlim = [0, nChan]
 
     nBl = int(nAnt*(nAnt-1)/2)
 
@@ -362,7 +371,7 @@ for fvis in files:
             ax2 = sub2[ai]
 
             ax.pcolormesh(T, F, 10**(M[ai]), vmin=vmin, vmax=vmax, shading='nearest')
-            M_freq_med = 10**(np.ma.median(M_freq[ai]))
+            M_freq_med = 10**(np.ma.median(M_freq[ai,chlim[0]:chlim[1]]))
             ax.set_title('Ant%02d, %.0fK'%(ai,M_freq_med))
             if (ai%4==0):
                 ax.set_ylabel('freq (MHz)')
@@ -435,7 +444,7 @@ for fvis in files:
             ax2 = sub2[ai]
 
             ax.pcolormesh(T, F, M[ai], vmin=vmin, vmax=vmax, shading='nearest')
-            M_freq_med = np.ma.median(M_freq[ai])
+            M_freq_med = np.ma.median(M_freq[ai,chlim[0]:chlim[1]])
             ax.set_title('Ant%02d, %.3fMJy'%(ai,M_freq_med))
             if (ai%4==0):
                 ax.set_ylabel('freq (MHz)')
