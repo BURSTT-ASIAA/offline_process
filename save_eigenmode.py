@@ -30,7 +30,7 @@ pg  = inp.pop(0)
 bitwidth = 16
 nAnt    = 16
 nChan   = 1024
-flim    = [400., 800.]
+flim    = [300., 700.]
 blocklen = 128000
 nBlock  = 1
 autoblock = True
@@ -60,6 +60,8 @@ NS_hwhm = 46.
 ## solar flux placeholder
 f410 = 5e5
 f610 = 7e5
+## misc
+chlim   = None
 
 pad  = 32
 
@@ -104,6 +106,8 @@ options are:
     --flim LOW HIGH
                 # specify the frequency range in MHz
                 # (%.0f %.0f)
+    --chlim MIN MAX
+                # channel range used for spectral avg
     --rows 'rows'
                 # specify the rows of the files in the --combine mode
                 # quote the numbers, separate with spaces
@@ -191,6 +195,10 @@ while (inp):
     elif (k == '--flim'):
         flim[0] = float(inp.pop(0))
         flim[1] = float(inp.pop(0))
+    elif (k == '--chlim'):
+        chmin = int(inp.pop(0))
+        chmax = int(inp.pop(0))
+        chlim = [chmin, chmax]
     elif (k == '--redo'):
         redo = True
     elif (k == '--pool'):
@@ -205,6 +213,8 @@ byteBlockBM = blocklen//8
 byteBlock = (hdlen + paylen)*blocklen + byteBlockBM
 # frequency in MHz
 freq = np.linspace(flim[0], flim[1], nChan, endpoint=False)
+if (chlim is None):
+    chlim = [0, nChan]
 
 nBl = int(nAnt * (nAnt-1) / 2)
 
@@ -513,9 +523,9 @@ for ll in range(nLoop):
         adoneh5(fout, amSEFD1, 'SEFD400')
         med_SEFD = np.median(amSEFD1, axis=0, keepdims=True) # median between antennas
         del_SEFD = amSEFD1/med_SEFD
-        wt_SEFD = 1./np.median(del_SEFD, axis=1) # weighting based on relative SEFD
+        wt_SEFD = 1./np.median(del_SEFD[:,chlim[0]:chlim[1]], axis=1) # weighting based on relative SEFD
         print('wt_SEFD:', wt_SEFD)
-        med_aSEFD = np.median(amSEFD1, axis=1)
+        med_aSEFD = np.median(amSEFD1[:,chlim[0]:chlim[1]], axis=1)
         adoneh5(fout, wt_SEFD, 'wt_SEFD')
 
 
@@ -676,7 +686,7 @@ for ll in range(nLoop):
     # median of antennas
     med_ampld = np.ma.median(savN3, axis=0)
     rel_ampld = savN3 / med_ampld.reshape(1,-1)
-    med_rel_ampld = np.ma.median(rel_ampld, axis=1) # one number per antenna
+    med_rel_ampld = np.ma.median(rel_ampld[:,chlim[0]:chlim[1]], axis=1) # one number per antenna
 
 
     ai = -1
