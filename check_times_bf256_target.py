@@ -724,6 +724,73 @@ b_peak_arr = np.array(b_peak_arr)
 #print('peak time:')
 #print(b_peak_arr)
 
+## re-derive peak_time (debug)
+fpeak2 = '%s.peak_time'%OutFilePrefix
+with open(fpeak2, 'w') as fh:
+    b_peak2 = []
+    for i in range(nBeam1-1,-1,-1):
+        max_bid = max_bid_arr[i] // nBeam1  # take the row id
+        #print('debug: i, max_bid', i, max_bid)
+        y = a1[max_bid, i]
+        j = y.argmax()
+        dt_peak2 = ut2[j] + timedelta(hours=UTCOffset_hr)
+        b_peak2_str = dt_peak2.strftime('%H:%M %m%d%y')
+        b_peak2.append(b_peak2_str)
+        print('Beam%02d: %s'%(i, b_peak2_str), file=fh)
+    b_peak2 = np.array(b_peak2)
+
+fpeak = '%s.at_peak'%OutFilePrefix
+with open(fpeak, 'w') as fh:
+    print("#CMD='/home/ubuntu/rudp256_300m/multi_dump.py 5 -w 5 --fushan'",file=fh)
+    print("#CMD='/home/ubuntu/rudp64_wrbd_3/multi_dump.py 5 -w 5'",file=fh)
+    print("#CMD='/home/ubuntu/rudp16/multi_dump.py 5 -w 5'",file=fh)
+    for i in range(nBeam1):  # follow the appended order
+        #print("echo '/home/ubuntu/rudp256_300m/multi_dump.py 5 -w 5 --fushan' | at %s"%b_peak_arr[i], file=fh)
+        #print("echo '/home/ubuntu/rudp256_300m/multi_dump.py 5 -w 5 --fushan' | at %s"%b_peak2[i], file=fh)
+        print("echo $CMD | at %s"%b_peak2[i], file=fh)
+
+
+
+## save the profiles
+if (saveNPZ):
+    f_out_npz = '%s.npz' % OutFilePrefix
+    # note: np.load(fnpz, allow_pickle=True)
+    attr = {
+            'src':targetname,
+            'site':sitename,
+            'theta_rot_deg=':theta_rot_deg,
+            'nAnt':nAnt,
+            'nRow':nRow,
+            'beam01':beam01,
+            'beam02':beam02,
+            'nBeam1':nBeam1,
+            'nBeam2':nBeam2,
+            'sep1':sep1,
+            'sep2':sep2,
+            'stretch1':stretch1,
+            'stretch2':stretch2,
+            'EWhwhm':Ehwhm,
+            'NShwhm':Hhwhm,
+            'EWcent':Ecent,
+            'NScent':Ncent
+            }
+
+    np.savez(f_out_npz,
+            attr=attr,
+            beam_prof=a1,       # shape (BeamNS, BeamEW, time)
+            datetime_ut=ut2,    # datetime array, shaep (time,)
+            az=az,
+            el=el,
+            EWang=EWang,
+            NSang=NSang,
+            atten=att0,
+            b_start=b_start_arr,    # estimated beam switching on time, shape (BeamNS,)
+            b_end=b_end_arr,        # estimated beam switching off time, shape (BeamNS,)
+            #b_peak=b_peak_arr,
+            b_peak=b_peak2,
+            max_bid=max_bid_arr     # beam id of the peak intensity, shape (BeamNS,)
+            )
+
 #ax.set_xlim([t_trans_utc + timedelta(hours=tlim[0]+ UTCOffset_hr), t_trans_utc + timedelta(hours=tlim[1]+8)])
 ax.set_xlim(x_min, x_max)
 
@@ -780,66 +847,3 @@ fig.savefig('%s.png' % (OutFilePrefix))
 if (show_plt):
     plt.show()
 
-
-## re-derive peak_time (debug)
-fpeak2 = '%s.peak_time'%OutFilePrefix
-with open(fpeak2, 'w') as fh:
-    b_peak2 = []
-    for i in range(nBeam1-1,-1,-1):
-        max_bid = max_bid_arr[i] // nBeam1  # take the row id
-        #print('debug: i, max_bid', i, max_bid)
-        y = a1[max_bid, i]
-        j = y.argmax()
-        dt_peak2 = ut2[j] + timedelta(hours=UTCOffset_hr)
-        b_peak2_str = dt_peak2.strftime('%H:%M %m%d%y')
-        b_peak2.append(b_peak2_str)
-        print('Beam%02d: %s'%(i, b_peak2_str), file=fh)
-    b_peak2 = np.array(b_peak2)
-
-fpeak = '%s.at_peak'%OutFilePrefix
-with open(fpeak, 'w') as fh:
-    for i in range(nBeam1):  # follow the appended order
-        #print("echo '/home/ubuntu/rudp256_300m/multi_dump.py 5 -w 5 --fushan' | at %s"%b_peak_arr[i], file=fh)
-        print("echo '/home/ubuntu/rudp256_300m/multi_dump.py 5 -w 5 --fushan' | at %s"%b_peak2[i], file=fh)
-
-
-
-## save the profiles
-if (saveNPZ):
-    f_out_npz = '%s.npz' % OutFilePrefix
-    # note: np.load(fnpz, allow_pickle=True)
-    attr = {
-            'src':targetname,
-            'site':sitename,
-            'theta_rot_deg=':theta_rot_deg,
-            'nAnt':nAnt,
-            'nRow':nRow,
-            'beam01':beam01,
-            'beam02':beam02,
-            'nBeam1':nBeam1,
-            'nBeam2':nBeam2,
-            'sep1':sep1,
-            'sep2':sep2,
-            'stretch1':stretch1,
-            'stretch2':stretch2,
-            'EWhwhm':Ehwhm,
-            'NShwhm':Hhwhm,
-            'EWcent':Ecent,
-            'NScent':Ncent
-            }
-
-    np.savez(f_out_npz,
-            attr=attr,
-            beam_prof=a1,       # shape (BeamNS, BeamEW, time)
-            datetime_ut=ut2,    # datetime array, shaep (time,)
-            az=az,
-            el=el,
-            EWang=EWang,
-            NSang=NSang,
-            atten=att0,
-            b_start=b_start_arr,    # estimated beam switching on time, shape (BeamNS,)
-            b_end=b_end_arr,        # estimated beam switching off time, shape (BeamNS,)
-            #b_peak=b_peak_arr,
-            b_peak=b_peak2,
-            max_bid=max_bid_arr     # beam id of the peak intensity, shape (BeamNS,)
-            )
