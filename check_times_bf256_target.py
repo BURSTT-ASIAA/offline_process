@@ -176,8 +176,12 @@ options are:
     --st2 stretch2      # (default: both 1.0)
     --flim fmin fmax    # Frequency range in MHz
                         # (default: {fmin} {fmax})
+    --chlim min max     # changes only the spectral integration channel range
+                        # (1024 channels between fmin, fmax)
     --norm              # Plot intensity after normalization to the max(intensity)
                         # (default: no normalization)
+    --no_freq2          # disable the SNR scaling with 1/freq^2
+    --save              # save the beam profiles in a NPZ file
     -q                  # (quiet mode) disable interactive plot (when executed by other scripts)
 ''' 
 
@@ -318,7 +322,7 @@ if (nBeam2 is None):
 freq_MHz = np.linspace(fmin, fmax, nChan, endpoint=False) 
 freq_Hz = freq_MHz * 1e6
 lamb = 2.998e8 / (freq_MHz * 1e6)
-lamb0 = lamb[0]
+lamb0 = 2.998e8/400e6 # fixed at 400MHz
 
 
 
@@ -816,7 +820,7 @@ ax.grid(which='both')
 
 # common title with Latex for symbols
 title1 = (
-    rf"{targetname} at {sitename} "
+    rf"{targetname} at {sitename} freq[{fmin},{fmax}] "
     rf"($\theta_{{\mathrm{{rot}}}} = {theta_rot_deg:.2f}^\circ$), "
     rf"transit at {t_trans_local:%Y-%m-%d %H:%M:%S}, "
 )
