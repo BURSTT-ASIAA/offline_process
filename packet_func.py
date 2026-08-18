@@ -147,6 +147,10 @@ def loadBatch(fh, pack0, npack, bpp, order_off=0, hdlen=64, bitwidth=4, hdver=1,
     elif (bitwidth==16):
         nsamp = bpp//4
 
+    if (bpp==3840):
+        nsamp = bpp//1
+    #print('in loadBatch: bpp=', bpp, 'nsamp=',nsamp)
+
     data0 = np.ma.array(np.zeros((npack, nsamp), dtype=np.complex64), mask=False)
     clock = np.ma.array(np.zeros(npack, dtype=np.int64), mask=False)
     order = np.ma.array(np.zeros(npack, dtype=int), mask=False)
@@ -187,6 +191,8 @@ def formSpec2(data0, bpp=8192, nAnt=16, nFPGA=16, grp=2, nChan=128, nStack=4, bi
     nChunk = nPack//nFPGA
     nFrame = nChunk * nStack
     nGrp = nChan//grp
+    #print('in formSpec2: bpp=', bpp, 'nAnt=', nAnt, 'nChan=',nChan, 'nStack=',nStack)
+    #print('in formSpec2: nFPGA=',nFPGA,'nFrame=',nFrame)
 
     #antSpec = np.ma.array(np.zeros((nFPGA,nFrame,nAnt,nChan), dtype=np.complex64), mask=False)
     tmp = data0.reshape((nChunk,nFPGA,bpp)).reshape((nChunk,nFPGA,nStack,nGrp,nAnt,grp))
@@ -381,7 +387,7 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
     return data_tick, antSpec
 
 
-def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=2, meta=64, nFPGA=4, no_bitmap=False, get_order=False, unswap=False):
+def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=2, meta=64, nFPGA=4, no_bitmap=False, get_order=False, unswap=False, isbf32=False):
     '''
     load the ring buffer file of one node
 
@@ -399,7 +405,15 @@ def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdl
         nChan = 128
         nStack = 4
 
-    mdict = metaRead(fh)
+    if (isbf32):    # 60chx16order version
+        nChan=60
+        nAnt = 32
+        bpp = 3840
+        nStack = 2
+        mdict = metaRead(fh, useRBH2=True)
+    else:
+        mdict = metaRead(fh)
+
     blocklen = mdict['packet_number']
     nBlock = mdict['block_number']
     #print('debug:', nBlock, blocklen, meta)
@@ -413,7 +427,7 @@ def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdl
     data0, clock0, order0 = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver, meta=meta, unswap=unswap)
     #print('debug:', data0.shape)
     #print('debug:', data0[2])
-    antSpec = formSpec2(data0, nFPGA=nFPGA, nChan=nChan, nStack=nStack, bitmap=bitmap)
+    antSpec = formSpec2(data0, bpp=bpp, nAnt=nAnt, nFPGA=nFPGA, nChan=nChan, nStack=nStack, bitmap=bitmap)
 
     #data1 = data0.reshape((-1,nFPGA,bpp))
     #clock1 = clock0.reshape((-1,nFPGA))
@@ -961,49 +975,54 @@ def hdScanner(fname, meta=64, hdlen=64, sep=8256):
     return np.array(pkcnt), np.array(order)
 
 
-def metaRead(fh, meta=64, dict_out=True):
+def metaRead(fh, meta=64, dict_out=True, useRBH2=False):
     '''
     read the meta information from the file
     if dict_out is True, a dictionary is returned
     otherwise, the tuple is returned
     '''
-    fh.seek(0)
-    buf = fh.read(meta)
+    if (useRBH2):
+        mdict = readRBH2(fh, usemmap=False)
+        return mdict
 
-    spec = [
-        ['server_id', 'H'],
-        ['ver_id', 'H'],
-        ['buffer_id', 'H'],
-        ['packet_size', 'H'],
-        ['block_number', 'H'],
-        ['beam_id', 'h'],
-        ['packet_number', 'I'],
-        ['second_start', 'I'],
-        ['second_end', 'I'],
-        ['data_offset', 'Q'],
-        ['bitmask_offset', 'Q'],
-        ['reserved_2', 'Q'],
-        ['reserved_3', 'Q'],
-        ['reserved_4', 'Q']
-    ]
-    spec = np.array(spec)
+    else:   # original
+        fh.seek(0)
+        buf = fh.read(meta)
+
+        spec = [
+            ['server_id', 'H'],
+            ['ver_id', 'H'],
+            ['buffer_id', 'H'],
+            ['packet_size', 'H'],
+            ['block_number', 'H'],
+            ['beam_id', 'h'],
+            ['packet_number', 'I'],
+            ['second_start', 'I'],
+            ['second_end', 'I'],
+            ['data_offset', 'Q'],
+            ['bitmask_offset', 'Q'],
+            ['reserved_2', 'Q'],
+            ['reserved_3', 'Q'],
+            ['reserved_4', 'Q']
+        ]
+        spec = np.array(spec)
 
 
-    fmt = '<' + ''.join(spec[:,1])
-    #print(spec[:,1], '-->', fmt)
-    tmp = struct.unpack(fmt, buf)    # format needs to fill up 64 bytes
-    #tmp = struct.unpack('<5Hh3I5Q', buf)    # format needs to fill up 64 bytes
+        fmt = '<' + ''.join(spec[:,1])
+        #print(spec[:,1], '-->', fmt)
+        tmp = struct.unpack(fmt, buf)    # format needs to fill up 64 bytes
+        #tmp = struct.unpack('<5Hh3I5Q', buf)    # format needs to fill up 64 bytes
 
-    if (dict_out):
-        names = spec[:,0]
-        out = {}
-        for i,n in enumerate(names):
-            out[n] = tmp[i]
+        if (dict_out):
+            names = spec[:,0]
+            out = {}
+            for i,n in enumerate(names):
+                out[n] = tmp[i]
 
-        return out
-    else:
-        #print(tmp)
-        return tmp
+            return out
+        else:
+            #print(tmp)
+            return tmp
 
 def readRBH(filename):
     '''
@@ -1030,3 +1049,35 @@ def readRBH(filename):
     
     return mdict
 
+def readRBH2(filename, usemmap=True):
+    '''
+    decode the ring buffer header with memmap
+    for new ring buffer header by Chih-Yi
+    '''
+    if (usemmap):
+        fhuge = np.memmap(filename, '<u1')
+    else:
+        filename.seek(0)
+        fhuge = filename.read(64)
+
+    mdict = {}
+    mdict['server_id'] = np.frombuffer(fhuge[0:2], dtype='<u2')[0]
+    mdict['version_id'] = np.frombuffer(fhuge[2:4], dtype='<u2')[0]
+    mdict['buffer_id'] = np.frombuffer(fhuge[4:5], dtype='<u1')[0]
+    mdict['packet_order'] = np.frombuffer(fhuge[5:6], dtype='<u1')[0]
+    mdict['packet_size'] = np.frombuffer(fhuge[6:8], dtype='<u2')[0]
+    mdict['total_fpga'] = np.frombuffer(fhuge[8:9], dtype='<u1')[0]
+    mdict['total_order'] = np.frombuffer(fhuge[9:10], dtype='<u1')[0]
+    mdict['block_number'] = np.frombuffer(fhuge[10:12], dtype='<u2')[0]
+    mdict['n_sample'] = np.frombuffer(fhuge[12:14], dtype='<u2')[0]
+    mdict['n_channel'] = np.frombuffer(fhuge[14:16], dtype='<u2')[0]
+    mdict['n_beams'] = np.frombuffer(fhuge[16:18], dtype='<u2')[0]
+    mdict['n_sum'] = np.frombuffer(fhuge[18:20], dtype='<u2')[0]
+    mdict['packet_number'] = np.frombuffer(fhuge[20:24], dtype='<u4')[0]
+    mdict['data_offset'] = np.frombuffer(fhuge[24:32], dtype='<u8')[0]
+    mdict['bitmask_offset'] = np.frombuffer(fhuge[32:40], dtype='<u8')[0]
+    mdict['beam_offset'] = np.frombuffer(fhuge[40:48], dtype='<u8')[0]
+    mdict['intensity_offset'] = np.frombuffer(fhuge[48:56], dtype='<u8')[0]
+    mdict['matrix_offset'] = np.frombuffer(fhuge[56:64], dtype='<u8')[0]
+    
+    return mdict

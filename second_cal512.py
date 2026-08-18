@@ -23,19 +23,20 @@ inp = sys.argv[0:]
 pg  = inp.pop(0)
 
 nChan0 = 1024
-nAnt = 16
+nAnt = 32
 
-## bf256 ##
+## bf512 ##
 nFPGA = 16
 nBeam = nFPGA*nAnt
-nNode = 8
-nChan = nChan0//nNode
+nNode = 16  # = nOrder
+nChan = 60
+nChan1 = nChan * nNode
 start_off = 0          # for bf64, 400-600MHz is order=2
-## bf256 ##
+## bf512 ##
 
 nFrame = 4096 #1000
 
-no_bitmap = False
+no_bitmap = True
 aref = 0
 pad  = 32   # fft padding factor; for dividing the lag sample to finer resolution
 
@@ -146,21 +147,20 @@ while (inp):
         files.append(k)
 
 
-nPack = nFPGA * nFrame // 4 ## bf256
+nPack = nFPGA * nFrame // 2 ## bf512
 
 #files = glob('/burstt3/disk?/data/ring*.20240808115800.bin')
 #files = glob('./burstt2/ring*.20240807115800.bin')
 files.sort()
 print(files)
 nFile = len(files)
-epochs = filesEpoch(files, hdver=2, meta=64)
+epochs = filesEpoch(files, hdver=2, meta=64, ppf=8)
 
 stamps = []
 for f in files:
     fb = os.path.basename(f)
-    i = fb.find('ring')
-    j = fb.find('.bin')
-    tmp = fb[i+6:j]
+    i = fb.find('order')
+    tmp = fb[i+8:]
     tmp = tmp.split('.')[0]
     stamps.append(tmp)
 nStamp = len(np.unique(stamps))
@@ -169,6 +169,7 @@ if (nStamp == 1):
     print(stamps, stamp_name)
     epoch0 = epochs[0]
     dt0 = Time(epoch0, format='unix').to_datetime()
+    print(dt0)
 else:
     sys.exit('more than one timestamp found. abort!')
 
@@ -184,21 +185,24 @@ elif (site == 'longtien'):
     sep = 2.0
 
 
-fMHz = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
+fMHz0 = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
+fMHz = fMHz0[:nChan1]
+
 
 if (os.path.isfile('%s/ant_cov_coeff.npy'%cdir)):
     read_raw = False
 
 if (read_raw):
     # ## correlate 4 rows of FPGA (each server) separately
-    spec1 = np.ma.array(np.zeros((nFPGA, nFrame, nAnt, nChan0), dtype=complex), mask=True)
+    spec1 = np.ma.array(np.zeros((nFPGA, nFrame, nAnt, nChan1), dtype=complex), mask=True)
 
     t0 = time.time()
     for i in range(nFile):
         fh0 = open(files[i], 'rb')
-        mdict0 = metaRead(fh0)
+        #mdict0 = metaRead(fh0)
         #print(mdict0)
-        data0, order0 = loadNode(fh0, 0, nPack, nFPGA=nFPGA, verbose=1, no_bitmap=no_bitmap, get_order=True)
+        mdict0 = readRBH2(files[i])
+        data0, order0 = loadNode(fh0, 0, nPack, nFPGA=nFPGA, isbf32=True, verbose=1, no_bitmap=no_bitmap, get_order=True)
         start_chan = nChan * order0
         wfreq = np.arange(start_chan, start_chan+nChan)
         print('order:', order0, data0.shape, 'time', time.time()-t0, 'sec')
@@ -216,7 +220,7 @@ if (read_raw):
     else:
         bb = bmax
 
-    fig, sub = plt.subplots(16,16,figsize=(32,24),sharey=True, sharex=True)
+    fig, sub = plt.subplots(16,32,figsize=(48,24),sharey=True, sharex=True)
     for row in range(nFPGA):
         for ai in range(nAnt):
             ii = row
@@ -234,9 +238,9 @@ if (read_raw):
 
     ## choose the peak-beam for correlation
     spec = spec1[:,:,bb]
-    auto = np.ma.abs(spec).mean(axis=1) # shape=(nFPGA, nChan0)
+    auto = np.ma.abs(spec).mean(axis=1) # shape=(nFPGA, nChan1)
     nBl = nFPGA * (nFPGA-1) // 2
-    coeff1 = np.ma.zeros((nBl,nChan0), dtype=complex)
+    coeff1 = np.ma.zeros((nBl,nChan1), dtype=complex)
     b = -1
     for ai in range(nFPGA-1):
         normi = auto[ai]
@@ -249,7 +253,7 @@ if (read_raw):
             coeff1[b] = cross.mean(axis=0)
 
     ## calculate covarinace
-    cov1 = np.zeros((nFPGA,nFPGA, 1024), dtype=complex)
+    cov1 = np.zeros((nFPGA,nFPGA, nChan1), dtype=complex)
     for i in range(nFPGA):
         cov1[i,i] = 1.+0.j
 
@@ -272,7 +276,7 @@ else: # not read_raw
     auto = np.load('%s/ant_auto.npy'%cdir)
     cov1 = np.load('%s/ant_cov_coeff.npy'%cdir)
     nBl = int(nFPGA*(nFPGA-1)/2)
-    coeff1 = np.ma.zeros((nBl,nChan0), dtype=complex)
+    coeff1 = np.ma.zeros((nBl,nChan1), dtype=complex)
     b = -1
     for ai in range(nFPGA-1):
         for aj in range(ai+1,nFPGA):
@@ -341,6 +345,7 @@ plt.close(fig)
 ## for attenuation correction
 dtarr = [dt0]
 az, el = getAzEl(dtarr, body=src, site=site)
+print(az,el)
 za = np.pi/2 - el
 pntr = np.sin(za)
 pntz = np.cos(za)
@@ -350,6 +355,7 @@ EWoff = np.arctan2(pntx,pntz) # rad
 NSoff = np.arctan2(pnty,pntz) # rad
 Eatt = atten(EWoff/np.pi*180., EW_hwhm)
 Hatt = atten(NSoff/np.pi*180., NS_hwhm)
+print(Eatt, Hatt)
 att0 = Eatt*Hatt
 print('atten:', att0)
 
@@ -357,7 +363,7 @@ print('atten:', att0)
 flux = f410 + (fMHz-410)*(f610-f410)/200.
 flux *= att0[0]
 
-SEFD1 = flux.reshape((1,nChan0))/np.ma.abs(coeff1) * (1.-np.ma.abs(coeff1))
+SEFD1 = flux.reshape((1,nChan1))/np.ma.abs(coeff1) * (1.-np.ma.abs(coeff1))
 lam = 2.998e8/(fMHz*1e6)  # meter
 mSEFD1 = SEFD1 / (fMHz/400.)**2
 
@@ -392,10 +398,10 @@ plt.close(fig)
 
 ## solve for each antenna
 # construct matrix B: 
-B = np.zeros((nBl, nAnt))
+B = np.zeros((nBl, nFPGA))
 b = -1
-for ai in range(nAnt-1):
-    for aj in range(ai+1, nAnt):
+for ai in range(nFPGA-1):
+    for aj in range(ai+1, nFPGA):
         b += 1
         if (ai in ant_flag or aj in ant_flag):
             continue # keep coefficient as zero
@@ -423,7 +429,7 @@ med_aSEFD = np.median(amSEFD1, axis=1)
 
 fig, s2d = plt.subplots(4,4,figsize=(12,8), sharex=True, sharey=True)
 sub = s2d.flatten()
-for ai in range(nAnt):
+for ai in range(nFPGA):
     ax = sub[ai]
     ax.plot(fMHz, amSEFD1[ai]/1e6)
     ax.set_yscale('log')
@@ -544,9 +550,9 @@ fig, s2d = plt.subplots(4,4,figsize=(10,8), sharex=True, sharey=True)
 sub = s2d.flatten()
 med_auto = np.ma.median(auto, axis=0, keepdims=True)
 auto2 = auto/med_auto
-#normCorr = (np.abs(VrefTau.T)/0.25 / auto2 / del_SEFD).reshape(1,nAnt,nChan0)
-normCorr = (np.abs(VrefTau.T)/0.25 / auto2 * wt_SEFD.reshape(nAnt,1)).reshape(1,nAnt,nChan0)
-phiCorr = np.exp(-1.j * np.angle(VrefTau.T)).reshape(1,nAnt,nChan0)
+#normCorr = (np.abs(VrefTau.T)/0.25 / auto2 / del_SEFD).reshape(1,nAnt,nChan1)
+normCorr = (np.abs(VrefTau.T)/0.25 / auto2 * wt_SEFD.reshape(nFPGA,1)).reshape(1,nFPGA,nChan1)
+phiCorr = np.exp(-1.j * np.angle(VrefTau.T)).reshape(1,nFPGA,nChan1)
 fcal2 = '%s/solution_2ndCal.npz'%(cdir,)
 np.savez(fcal2, auto2=auto2, tau_i=VrefTau, wt_SEFD=wt_SEFD, phiCorr=phiCorr, normCorr=normCorr, del_SEFD=del_SEFD)
 # auto2: relative ampld btw rows
@@ -567,7 +573,7 @@ for i in range(nFPGA):
     ax.plot(fMHz, 1/auto2[i], label='rel.gain')
     ax.plot(fMHz, np.abs(VrefTau[:,i])/0.25, label='abs(V)/0.25')
     ax.plot(fMHz, 1/del_SEFD[i], color='g', alpha=0.5, lw=0.5, label='1/del_SEFD')
-    ax.plot(fMHz, np.ones(nChan0)*wt_SEFD[i], color='g', ls='--', label='wt_SEFD')
+    ax.plot(fMHz, np.ones(nChan1)*wt_SEFD[i], color='g', ls='--', label='wt_SEFD')
     ax.plot(fMHz, normCorr[0,i], color='k', ls=':', lw=2, label='normCorr')
     if (i == 0):
         ax.legend()
@@ -584,9 +590,9 @@ plt.close(fig)
 
 
 ## delay fitting
-FTVref = np.fft.fft(VrefTau, n=int(nChan0*pad), axis=0)
+FTVref = np.fft.fft(VrefTau, n=int(nChan1*pad), axis=0)
 FTVref = np.fft.fftshift(FTVref, axes=0)
-peak_lag = np.abs(FTVref).argmax(axis=0) - int(pad*nChan0/2)
+peak_lag = np.abs(FTVref).argmax(axis=0) - int(pad*nChan1/2)
 #print(peak_lag)
 peak_ns = peak_lag * 1e9/400e6 / pad # convert to ns
 #print(peak_ns)
