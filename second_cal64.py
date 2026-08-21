@@ -11,6 +11,9 @@ from calibrate_func import *
 from pyplanet import *
 from util_func import *
 
+from  getStationConfig import *
+
+
 def atten(x, hwhm):
     '''
     Gaussian attenuation (linear) given offset x and the half-power full width
@@ -28,7 +31,7 @@ nAnt = 16
 ## bf64 ##
 nFPGA = 4
 nBeam = nFPGA*nAnt
-nNode = 2
+nNode = 2  # number of ring buffers, each handling 200 MHz BW
 nChan = nChan0//nNode
 start_off = 0          # for bf64, 400-600MHz is order=2
 ## bf64 ##
@@ -37,17 +40,17 @@ start_off = 0          # for bf64, 400-600MHz is order=2
 nFrame = 4096 #1000
 
 no_bitmap = False
-aref = 0
+RefAntID = 0
 pad  = 32   # fft padding factor; for dividing the lag sample to finer resolution
 
-site = 'longtien'
+sitename = 'longtien'
 src  = 'sun'
 cdir_path = '/burstt5/disk1/2nd_cal'
 if (not os.path.isdir(cdir_path)):
     cdir_path = '.'
 make_copy = True
 
-sep  = 2.0          # row spacing in meters
+separation_m  = 2.0          # row spacing in meters
 theta_rot_deg = 0.0     # array misalignment angle in deg
 bmax = None         # auto-determine the max-intensity beam number
 read_raw = True
@@ -57,14 +60,28 @@ ant_flag = []
 chlim = None
 
 ## arbitrary number
-f410 = 5.0e5 # Jy
-f610 = 7.0e5 # Jy
+flux_sun_410MHz = 5.0e5 # Jy
+flux_sun_610MHz = 7.0e5 # Jy
 
-## with MED
-G0 = 7.0 # dB
+# MobileMark LPDA;  Ehwhm, Hhwhm= (40, 35) for MED
+Antenna = {
+    "MMLPDA"    : {"Gain": 6., "Ehwhm": 30., "Hhwhm": 60.},
+    "ASIAALPDA" : {"Gain": 7., "Ehwhm": 30., "Hhwhm": 45.},
+    "MED"       : {"Gain": 8., "Ehwhm": 40., "Hhwhm": 35.}
+}
+
+## with MED by default
+antenna_type = 'MED'
+
+G0 = Antenna[antenna_type]['Gain']     #7.0 # dB
 ## beam width
-EW_hwhm = 50 # deg, MEd
-NS_hwhm = 50 # deg, MED
+EW_hwhm   = Antenna[antenna_type]['Ehwhm'] # E-W beam half width (deg) at half max
+NS_hwhm   = Antenna[antenna_type]['Hhwhm'] # N-S beam half width (deg) at half max
+
+
+
+
+
 
 usage = '''
 derive delay between FPGAs from the baseband after 1st beamform (ring0, ring1 basebands)
@@ -105,9 +122,11 @@ options are:
                 # default: %.1f
     --hwhm EW NS # enter the EW and NS hphm beam width in deg
                 # default: %.1f %.1f
+    --ant antenna_type  # 'MMLPDA', 'ASIAALPDA', 'MED' use pre-defined gain and beamwidth (default: %s)
+
     --copy DIR  # change the copying destination for 2nd_cal results
                 # default: %s
-''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610, G0, EW_hwhm, NS_hwhm, cdir_path)
+''' % (pg, nFrame, separation_m, theta_rot_deg, sitename, src, flux_sun_410MHz, flux_sun_610MHz, G0, EW_hwhm, NS_hwhm, antenna_type, cdir_path)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -118,16 +137,16 @@ while (inp):
     if (k == '-n'):
         nFrame = int(inp.pop(0))
     elif (k == '-s'):
-        sep = float(inp.pop(0))
+        separation_m = float(inp.pop(0))
     elif (k == '--aref'):
-        aref = int(inp.pop(0))
+        RefAntID = int(inp.pop(0))
     elif (k == '--site'):
-        site = inp.pop(0)
+        sitename = inp.pop(0)
     elif (k == '--src'):
         src = inp.pop(0)
     elif (k == '--interp'):
-        f410 = float(inp.pop(0))
-        f610 = float(inp.pop(0))
+        flux_sun_410MHz = float(inp.pop(0))
+        flux_sun_610MHz = float(inp.pop(0))
     elif (k == '--rot'):
         theta_rot_deg = float(inp.pop(0))
     elif (k == '--bmax'):
@@ -145,12 +164,24 @@ while (inp):
     elif (k == '--hwhm'):
         EW_hwhm = float(inp.pop(0))
         NS_hwhm = float(inp.pop(0))
+    elif (k == '--ant'):
+        ant_ = inp.pop(0)
+        if ant_.upper() in Antenna:
+            antenna_type = ant_
+            print("use pre-defined antenna type: [%s]"%ant_)
+        else:
+            print("unknown antenna type: [%s]. Ignore"%ant_)
     elif (k == '--copy'):
         cdir_path = inp.pop(0)
     elif (k.startswith('_')):
         sys.exit('unknown option: %s'%k)
     else:
         files.append(k)
+
+
+
+printf(f'antenna gain {G0} dBi, half-width hallf maximum = {EW_hwhm} deg (E-W), {NS_hwhm} deg (N-S)')
+print(f'reference antenna: {RefAntID}')
 
 if (chlim is None):
     ch1 = 0
@@ -160,7 +191,7 @@ else:
     ch2 = chlim[1]
 chlim = [ch1, ch2]
 
-nBl = int(nFPGA*(nFPGA-1)/2)
+nBaseline = int(nFPGA*(nFPGA-1)/2)
 #nPack = nFPGA * nFrame // 4 ## bf256
 nPack = nFPGA * nFrame // 1 ## bf64
 
@@ -171,6 +202,7 @@ print(files)
 nFile = len(files)
 epochs = filesEpoch(files, hdver=2, meta=64)
 
+# extract timestamp from file name; files for different ring buffers should have identical timestamp
 stamps = []
 for f in files:
     fb = os.path.basename(f)
@@ -179,6 +211,7 @@ for f in files:
     tmp = fb[i+6:j]
     tmp = tmp.split('.')[0]
     stamps.append(tmp)
+
 nStamp = len(np.unique(stamps))
 if (nStamp == 1):
     stamp_name = stamps[0]
@@ -193,17 +226,36 @@ cdir = 'cal_%s.check'%(stamp_name,)
 call('mkdir -p %s'%cdir, shell=True)
 
 
-if (site == 'fushan6'):
+# use general station config
+# Overwrite current setting if station name is found
+station_config = GetStationConfig(sitename)
+print(f'Station Config for {sitename}: ', station_config)
+if station_config:
+    sitename = station_config["Name"]
+    theta_rot_deg = station_config["Rotate_deg"]
+    # overwrite the arguments
+    #nAnt    = station_config["NAntPerRow"]
+    #nRow    = station_config["NRow"]
+    separation_m = station_config["Spacing_NS_m"]
+#else:
+#    sys.exit('Invalid site name: %s' % sitename)
+
+'''
+if (sitename == 'fushan6'):
     theta_rot_deg = -3.0
-elif (site == 'longtien'):
+elif (sitename == 'longtien'):
     theta_rot_deg = 0.5
-    sep = 2.0
+    separation_m = 2.0
+'''
+
 
 ## added (2026-03-26, Sujin)
 if fmin == 400:
     start_off = -2  # for bf64, 400-600MHz is order=2
 
-fMHz = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
+
+freq_MHz = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
+
 
 if (os.path.isfile('%s/ant_cov_coeff.npy'%cdir)):
     read_raw = False
@@ -228,7 +280,7 @@ if (read_raw):
 
     inten1 = np.mean(np.ma.abs(spec1[:,:,:,chlim[0]:chlim[1]])**2, axis=3)    # shape(nFPGA, nFrame, nAnt)
     xx = np.arange(nFrame)
-    ## estimate the peak beam
+    ## estimate the peak beam  along E-W
     inten2 = np.mean(inten1, axis=(0,1))    # shape(nAnt,) or nBeam
     if (bmax is None):
         bb = np.ma.argmax(inten2)
@@ -252,9 +304,9 @@ if (read_raw):
 
 
     ## choose the peak-beam for correlation
-    spec = spec1[:,:,bb]
+    spec = spec1[:,:,bb]  # nFPGA * nFrame * nChan0
     auto = np.ma.abs(spec).mean(axis=1) # shape=(nFPGA, nChan0)
-    coeff1 = np.ma.zeros((nBl,nChan0), dtype=complex)
+    coeff1 = np.ma.zeros((nBaseline,nChan0), dtype=complex)
     b = -1
     for ai in range(nFPGA-1):
         normi = auto[ai]
@@ -267,7 +319,7 @@ if (read_raw):
             coeff1[b] = cross.mean(axis=0)
 
     ## calculate covarinace
-    cov1 = np.zeros((nFPGA,nFPGA, 1024), dtype=complex)
+    cov1 = np.zeros((nFPGA,nFPGA, nChan0), dtype=complex)
     for i in range(nFPGA):
         cov1[i,i] = 1.+0.j
 
@@ -289,8 +341,8 @@ if (read_raw):
 else: # not read_raw
     auto = np.load('%s/ant_auto.npy'%cdir)
     cov1 = np.load('%s/ant_cov_coeff.npy'%cdir)
-    nBl = int(nFPGA*(nFPGA-1)/2)
-    coeff1 = np.ma.zeros((nBl,nChan0), dtype=complex)
+    nBaseline = int(nFPGA*(nFPGA-1)/2)
+    coeff1 = np.ma.zeros((nBaseline,nChan0), dtype=complex)
     b = -1
     for ai in range(nFPGA-1):
         for aj in range(ai+1,nFPGA):
@@ -314,8 +366,8 @@ for ai in range(nFPGA-1):
         ax = sub[ii,jj]
         #tau1 = taus1[ai]-taus1[aj]
         #tau2 = taus2[ai]-taus2[aj]
-        ax.plot(fMHz, np.ma.angle(coeff1[b]), 'b.')
-        #ax.plot(fMHz, np.angle(coeff1[b]*np.exp(2j*np.pi*fMHz*1e-3*tau1)), 'c.', label='SEFD*lam^2')
+        ax.plot(freq_MHz, np.ma.angle(coeff1[b]), 'b.')
+        #ax.plot(freq_MHz, np.angle(coeff1[b]*np.exp(2j*np.pi*freq_MHz*1e-3*tau1)), 'c.', label='SEFD*lam^2')
         ax.set_ylim(-3.3, 3.3)
         ax.grid()
         
@@ -343,7 +395,7 @@ for ai in range(nFPGA-1):
         jj = aj-1
         b += 1
         ax = sub[ii,jj]
-        ax.plot(fMHz, np.ma.abs(coeff1[b]), 'b.')
+        ax.plot(freq_MHz, np.ma.abs(coeff1[b]), 'b.')
         ax.grid()
         
         if (ii==jj):
@@ -357,8 +409,9 @@ plt.close(fig)
 
 
 ## for attenuation correction
+# direction to the source -> offset angle from antenna boresight, assumed toward the zenith (not true for OGW and PYC)
 dtarr = [dt0]
-az, el = getAzEl(dtarr, body=src, site=site)
+az, el = getAzEl(dtarr, body=src, site=sitename)
 za = np.pi/2 - el
 pntr = np.sin(za)
 pntz = np.cos(za)
@@ -372,12 +425,14 @@ att0 = Eatt*Hatt
 print('atten:', att0)
 
 ## calculate SEFD
-flux = f410 + (fMHz-410)*(f610-f410)/200.
+flux = flux_sun_410MHz + (freq_MHz-410)*(flux_sun_610MHz-flux_sun_410MHz)/200.
 flux *= att0[0]
 
 SEFD1 = flux.reshape((1,nChan0))/np.ma.abs(coeff1) * (1.-np.ma.abs(coeff1))
-lam = 2.998e8/(fMHz*1e6)  # meter
-mSEFD1 = SEFD1 / (fMHz/400.)**2
+lambda_m = 2.998e8/(freq_MHz*1e6)  # meter
+
+#  scaled relative to SEFD at 400 MHz
+mSEFD1 = SEFD1 / (freq_MHz/400.)**2
 
 
 fig, sub = plt.subplots(nFPGA-1,nFPGA-1,figsize=(16,9), sharey=True, sharex=True)
@@ -392,8 +447,8 @@ for ai in range(nFPGA-1):
         jj = aj-1
         b += 1
         ax = sub[ii,jj]
-        ax.plot(fMHz, mSEFD1[b], 'b.', label='SEFD*lam^2')
-        ax.plot(fMHz, SEFD1[b], 'c.', label='SEFD')
+        ax.plot(freq_MHz, mSEFD1[b], 'b.', label='SEFD*lam^2')
+        ax.plot(freq_MHz, SEFD1[b], 'c.', label='SEFD')
         ax.set_ylim(0, 5e5)
         ax.legend()
         ax.grid()
@@ -410,7 +465,7 @@ plt.close(fig)
 
 ## solve for each antenna
 # construct matrix B: 
-B = np.zeros((nBl, nFPGA))
+B = np.zeros((nBaseline, nFPGA))
 b = -1
 for ai in range(nFPGA-1):
     for aj in range(ai+1, nFPGA):
@@ -424,14 +479,14 @@ for ai in range(nFPGA-1):
 
 # pseudo-inverse
 Binv = pinv(B)
-# shape (nAnt, nBl)
+# shape (nAnt, nBaseline)
 
 # model M = Ainv . D
 # residual R = B . M - D
-D = np.log10(mSEFD1)    # data, shape:(nBl, nChan)
+D = np.log10(mSEFD1)    # data, shape:(nBaseline, nChan)
 M = np.dot(Binv, D)     # model, shape:(nAnt,)
 BM = np.dot(B, M)
-R = BM - D              # residual, shape: (nBl, nChan)
+R = BM - D              # residual, shape: (nBaseline, nChan)
 amSEFD1 = 10**(M)       # linear modified SEFD per ant, shape: (nAnt, nChan)
 med_SEFD = np.median(amSEFD1, axis=0, keepdims=True) # median between antennas
 del_SEFD = amSEFD1/med_SEFD
@@ -443,7 +498,7 @@ fig, s2d = plt.subplots(2,2,figsize=(12,8), sharex=True, sharey=True)
 sub = s2d.flatten()
 for ai in range(nFPGA):
     ax = sub[ai]
-    ax.plot(fMHz, amSEFD1[ai]/1e6)
+    ax.plot(freq_MHz, amSEFD1[ai]/1e6)
     ax.set_yscale('log')
     ax.set_ylim(0.03, 1.00)
     ax.grid(True, which='both')
@@ -463,7 +518,7 @@ plt.close(fig)
 ## convert to Tsys
 gain = 10.**(G0/10.)
 
-Aeff = lam**2*gain/(4.*np.pi)  # meter^2
+Aeff = lambda_m**2*gain/(4.*np.pi)  # meter^2
 Aeff *= nAnt    # after bf16
 scale = Aeff / (2*1.38e-23) * 1e-26
 Tsys1 = SEFD1 * scale
@@ -481,7 +536,7 @@ for ai in range(nFPGA-1):
         jj = aj-1
         b += 1
         ax = sub[ii,jj]
-        ax.plot(fMHz, Tsys1[b], 'b.', label='Tsys')
+        ax.plot(freq_MHz, Tsys1[b], 'b.', label='Tsys')
         ax.set_ylim(0, 300)
         ax.grid()
         
@@ -501,7 +556,7 @@ W1, V1 = Cov2Eig(cov1, ant_flag=[])
 fig, ax = plt.subplots(1,1,figsize=(10,6), sharex=True, sharey=True)
 
 for i in range(nFPGA):
-    ax.plot(fMHz, 10*np.log10(W1[:,i]))
+    ax.plot(freq_MHz, 10*np.log10(W1[:,i]))
 
 ax.set_xlabel('freq (MHz)')
 ax.set_ylabel('W (dB)')
@@ -511,18 +566,20 @@ plt.close(fig)
 
 
 
-
+# leading eigen vector (nChan0, nFPGA), supposedly from the cal source
 #Vref1 = V1[:,:,-1]
 Vref1 = np.ma.array(V1[:,:,-1], mask=~np.isfinite(V1[:,:,-1]))
 
 fig, s2d = plt.subplots(2,2,figsize=(16,9), sharex=True, sharey=True)
 sub = s2d.flatten()
-
-Vref1p = Vref1 / (Vref1[:,aref]/np.abs(Vref1[:,aref])).reshape((-1,1))
+# phase relative to ref one
+Vref1p = Vref1 / (Vref1[:,RefAntID]/np.abs(Vref1[:,RefAntID])).reshape((-1,1))
 
 for i in range(nFPGA):
     ax = sub[i]
-    ax.plot(fMHz, np.angle(Vref1p[:,i]), 'b.')
+    ax.plot(freq_MHz, np.angle(Vref1p[:,i]), 'b.')
+    ax.set(xlabel='frequency (MHz)', ylabel='phase (rad)',
+       title=f'FPGA {i}')
 
 fig.savefig('%s/ant_phase_raw.png'%cdir)
 plt.close(fig)
@@ -534,14 +591,14 @@ plt.close(fig)
 print('array misalignment (deg):', theta_rot_deg)
 theta_rot = theta_rot_deg / 180. * np.pi
 pos0 = np.zeros((nFPGA,3))
-pos0[:,1] = np.arange(nFPGA)*sep
+pos0[:,1] = np.arange(nFPGA)*separation_m
 pos = rot(pos0, theta_rot)
 #print(pos0, pos)    # debug
 
-tauGeo = get_tauGeo(dtarr, pos, body=src, site=site, aref=aref)
+tauGeo = get_tauGeo(dtarr, pos, body=src, site=sitename, aref=RefAntID)
 ns_tau = tauGeo * 1e9
 #print(ns_tau.shape)
-print('tauGeo (ns):', ns_tau)
+print('geometric delay  (ns):', ns_tau)
 
 
 
@@ -552,7 +609,7 @@ print('tauGeo (ns):', ns_tau)
 #ns_tau = pos * ns_rad / 2.998e8 * 1e9 # delay in ns
 
 # correct for geometric delay
-VrefTau = Vref1p * np.exp(-2j*np.pi*ns_tau.reshape((1,-1))*fMHz.reshape((-1,1))*1e-3)
+VrefTau = Vref1p * np.exp(-2j*np.pi*ns_tau.reshape((1,-1))*freq_MHz.reshape((-1,1))*1e-3)
 nChan1 = ch2-ch1
 VrefTau = VrefTau[ch1:ch2]
 
@@ -589,11 +646,11 @@ with open(fnorm, 'w') as fh:
 
 for i in range(nFPGA):
     ax = sub[i]
-    ax.plot(fMHz[ch1:ch2], 1/auto2[i], label='rel.gain')
-    ax.plot(fMHz[ch1:ch2], np.abs(VrefTau[:,i])/0.5, label='abs(V)/0.5')
-    ax.plot(fMHz[ch1:ch2], (1/del_SEFD[i])[ch1:ch2], color='g', alpha=0.5, lw=0.5, label='1/del_SEFD')
-    ax.plot(fMHz[ch1:ch2], (np.ones(nChan1)*wt_SEFD[i]), color='g', ls='--', label='wt_SEFD')
-    ax.plot(fMHz[ch1:ch2], normCorr[0,i][ch1:ch2], color='k', ls=':', lw=2, label='normCorr')
+    ax.plot(freq_MHz[ch1:ch2], 1/auto2[i], label='rel.gain')
+    ax.plot(freq_MHz[ch1:ch2], np.abs(VrefTau[:,i])/0.5, label='abs(V)/0.5')
+    ax.plot(freq_MHz[ch1:ch2], (1/del_SEFD[i])[ch1:ch2], color='g', alpha=0.5, lw=0.5, label='1/del_SEFD')
+    ax.plot(freq_MHz[ch1:ch2], (np.ones(nChan1)*wt_SEFD[i]), color='g', ls='--', label='wt_SEFD')
+    ax.plot(freq_MHz[ch1:ch2], normCorr[0,i][ch1:ch2], color='k', ls=':', lw=2, label='normCorr')
     if (i == 0):
         ax.legend()
     if (i>=2):
@@ -609,23 +666,30 @@ plt.close(fig)
 
 
 ## delay fitting
+# find delay between FPGAs;  this uses periodicity of wrapped phase to find the delay:  2*pi* Df * tau = 2*pi; 
 FTVref = np.fft.fft(VrefTau, n=int(nChan1*pad), axis=0)
-FTVref = np.fft.fftshift(FTVref, axes=0)
+
+# shift 0 to center -> delay range [0, 2t] -> [-t,t]
+FTVref = np.fft.fftshift(FTVref, axes=0)    
+
+# index at peak relative to center; index corresponds to a delay with interval =  1/(nChan0*pad * df) = 1/(BW*pad)
 peak_lag = np.abs(FTVref).argmax(axis=0) - int(pad*nChan1/2)
 #print(peak_lag)
 #peak_ns = peak_lag * 1e9/400e6 / pad # convert to ns
 peak_ns = peak_lag * 1e9/(400e6*nChan1/nChan0*pad)
-#print(peak_ns)
+#print('coarse delay correction (ns)', peak_ns)
 # coarse delay correction
-VrefC = VrefTau*np.exp(-2j*np.pi*peak_ns.reshape((1,-1))*fMHz[ch1:ch2].reshape((-1,1))*1e-3)
+VrefC = VrefTau*np.exp(-2j*np.pi*peak_ns.reshape((1,-1))*freq_MHz[ch1:ch2].reshape((-1,1))*1e-3)
 # fine delay correction
 #medphi = np.median(np.angle(VrefC), axis=0)
 med_r = np.median(VrefC.real, axis=0)
 med_i = np.median(VrefC.imag, axis=0)
 medphi = np.angle(med_r + 1.j*med_i)
-dtau = medphi / (2.*np.pi) * lam[ch1:ch2].mean() / 2.998e8 * 1e9 # ns
+
+# fine delay correction ; phase is supposedly near 0, e.g., residual from phase response of Rx
+dtau = medphi / (2.*np.pi) * lambda_m[ch1:ch2].mean() / 2.998e8 * 1e9 # ns
 #print(dtau)
-VrefF = VrefC*np.exp(-2j*np.pi*dtau.reshape((1,-1))*fMHz[ch1:ch2].reshape((-1,1))*1e-3)
+VrefF = VrefC*np.exp(-2j*np.pi*dtau.reshape((1,-1))*freq_MHz[ch1:ch2].reshape((-1,1))*1e-3)
 tauCorr = -(peak_ns + dtau)
 #tauStr = ', '.join(['%.3f'%x for x in tauCorr])
 
@@ -645,9 +709,9 @@ sub = s2d.flatten()
 
 for i in range(nFPGA):
     ax = sub[i]
-    ax.plot(fMHz[ch1:ch2], np.angle(VrefTau[:,i]), color='gray', marker='.', ls='none', label='rem_geo')
-    ax.plot(fMHz[ch1:ch2], np.angle(VrefC[:,i]), color='orange', marker='.', ls='none', label='rem_coarse')
-    ax.plot(fMHz[ch1:ch2], np.angle(VrefF[:,i]), color='b', marker='.', ls='none', label='rem_fine')
+    ax.plot(freq_MHz[ch1:ch2], np.angle(VrefTau[:,i]), color='gray', marker='.', ls='none', label='rem_geo')
+    ax.plot(freq_MHz[ch1:ch2], np.angle(VrefC[:,i]), color='orange', marker='.', ls='none', label='rem_coarse')
+    ax.plot(freq_MHz[ch1:ch2], np.angle(VrefF[:,i]), color='b', marker='.', ls='none', label='rem_fine')
     ax.text(0.05, 0.90, 'tau: %.3f'%tauCorr[i], transform=ax.transAxes)
     ax.grid()
     if (i==0):

@@ -960,6 +960,26 @@ def hdScanner(fname, meta=64, hdlen=64, sep=8256):
     fh.close()
     return np.array(pkcnt), np.array(order)
 
+def HeaderToTimestamp(header, NPacketPerFrame=2, packet_order_offset=0):
+    '''
+    SH: 64-Byte header to Unix epoch
+
+    packet time: time span per packet = time span per frame 2.56e-6 sec *  (1 frame / 2 packet); sampling period = 1/BW_Hz, * NChan freq ch
+
+    packet_order_offset for packet 0 & 1 (bf16 300-700MHz bitcode);  -2: for packet 2 & 3
+
+
+    frame_count = (packet_count - (order-2))/2  <-- order2 and order3 should be the same
+    epoch_time = reset_epoch + 2 + frame_count*2.56e-6
+    '''
+    PPSOffset_s = 2.  # 2 PPS delay
+    TimePerFrame_s = 2.56e-6 #sec
+
+    pack_count, time_count, FPGAResetEpoch, pps_count, pack_order = decHeader2(header)
+    # assume order = 2,3 ;   ### [0,1] for 300-700 MHz
+    frame_count = (pack_count - (pack_order - packet_order_offset))//2
+
+    return FPGAResetEpoch + frame_count * TimePerFrame_s + PPSOffset_s 
 
 def metaRead(fh, meta=64, dict_out=True):
     '''

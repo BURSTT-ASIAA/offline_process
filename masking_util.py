@@ -210,6 +210,22 @@ def plot_MAD_histogram(mad_data, threshold, label=""):
     plt.grid(axis='y', alpha=0.3)
     plt.show()
 
+def apply_masking(x, y, data_2d, freq_mask=None, time_mask=None):
+    # 1. Blank out invalid numbers
+    invalid_masked = np.ma.masked_invalid(data_2d)
+    
+    # 2. Prepare shading overlay
+    overlay_mask = np.zeros_like(data_2d, dtype=bool)
+    if freq_mask is not None:
+        overlay_mask[:, freq_mask] = True
+    if time_mask is not None:
+        overlay_mask[time_mask, :] = True
+
+    # Final combined masked array for statistical use
+    final_masked = np.ma.array(data_2d, mask=invalid_masked.mask | overlay_mask)
+    return final_masked
+       
+
 def plot_masked_pcolormesh(ax, x, y, data_2d, freq_mask=None, time_mask=None, vmin=None, vmax=None, shade_color='gray'):
     """
     Plots pcolormesh with:
