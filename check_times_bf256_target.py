@@ -361,6 +361,8 @@ if theta_off_deg_1d != 0:
 
 beam_angle_1d_deg_ori = np.arcsin(sin_theta_m1_ori)*180/np.pi
 beam_angle_2d_deg_ori = np.arcsin(sin_theta_m2_ori)*180/np.pi
+print('BFM1 angles (deg):', beam_angle_1d_deg_ori)
+print('BFM2 angles (deg):', beam_angle_2d_deg_ori)
 
 
 # apply calibration using Sun
@@ -450,6 +452,8 @@ obs.date = obsdt
 
 if targetname.lower() == 'sun':
     body = ephem.Sun()
+    body.compute(obs)
+    print('target coord', body.ra, body.dec)
 
 else:
     target_coord = SkyCoord.from_name(targetname)
@@ -550,6 +554,7 @@ if cal_atten:
     #print('debug: max(Eatt)', Eatt.max())
     #print('debug: max(Hatt)', Hatt.max())
     att0 = Eatt*Hatt
+    print('peak att:', att0.max())
     inVolt *= att0[np.newaxis,np.newaxis,:,np.newaxis]
 
 outVolt = np.zeros((nBeam2, nBeam1, nSky, nChan), dtype=complex)
