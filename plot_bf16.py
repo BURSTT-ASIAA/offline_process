@@ -305,7 +305,8 @@ for j in range(nDir):
                         ### to-do replace by general function
                         WindowEpochTime[iWin] = tmp[2] + 2 + (tmp[0]-tmp[4])/prate # UTC
                     buf = fh.read(nBytePerIntensityBlock)
-                    data = np.frombuffer(buf, dtype=np.float16).reshape((nTime,nFreqChan,nRow,nAnt))
+                    #data = np.frombuffer(buf, dtype=np.float16).reshape((nTime,nFreqChan,nRow,nAnt))
+                    data = np.frombuffer(buf, dtype=np.int16).astype(np.float32).reshape((nTime,nFreqChan,nRow,nAnt))
                     IntensityArray[iWin] += data.mean(axis=0)
                 IntensityArray[iWin] /= nBlockToIntegrate
 
