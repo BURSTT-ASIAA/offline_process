@@ -93,8 +93,8 @@ for fname in files:
     ord1 = tmp[4]
 
     #print(prate)
-    ep_begin = ep0 + (pcnt0-ord0)/prate
-    ep_end = ep0+ (pcnt1-ord1)/prate
+    ep_begin = ep0 + 2 + (pcnt0-ord0)/prate
+    ep_end = ep0 + 2 + (pcnt1-ord1)/prate
     print(Time([ep_begin, ep_end], format='unix').iso)
 
 
