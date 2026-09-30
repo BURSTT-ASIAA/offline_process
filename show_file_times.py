@@ -17,6 +17,7 @@ pack_num  = None
 pack_off  = 1
 bf    = 256
 prate = 400e6/1024*2
+te = None
 
 usage = '''
 show begin and end times of a file
@@ -24,6 +25,12 @@ syntax:
     %s <bin_files> [options]
 
 options are
+--bf MODE       <256|64|16>
+                (sets the default packet number and packet_offset)
+                (default: %d)
+
+--te epoch      provide a event time in Unix seconds for comparison
+
 --ps SIZE       packet size in bytes (header+payload)
 --pn NUM        number of packets per block
                 (used to estimate last packet location)
@@ -31,11 +38,9 @@ options are
                          204800 for bf64
                          102400 for bf16
 --po OFF        number of packet to offset from the end
---bf MODE       <256|64|16>
-                (sets the default packet number and packet_offset)
---meta META     length of meta header in bytes
+--meta META     length of meta header in bytes (%d)
 
-'''%(pg,)
+'''%(pg, bf, meta)
 
 if (len(inp)<1):
     sys.exit(usage)
@@ -53,6 +58,8 @@ while (inp):
         bf = int(inp.pop(0))
     elif (k == '--meta'):
         meta = int(inp.pop(0))
+    elif (k == '--te'):
+        te = float(inp.pop(0))
     elif (k.startswith('-')):
         sys.exit(f'unknown option: {k}')
     else:
@@ -65,6 +72,11 @@ if (pack_num is None):
         pack_num = 204800
     elif (bf == 16):
         pack_num = 102400
+
+
+if (not te is None):
+    dte = Time(te, format='unix').to_datetime()
+    print('event time:', dte)
 
 for fname in files:
     print(fname, 'times:')
