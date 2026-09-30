@@ -8,15 +8,19 @@ host = os.environ.get('HOST')
 hostname = os.environ.get('HOSTNAME')
 home = os.environ.get('HOME')
 
-bindir = sys.path[1]    # the leading entry in $PYTHONPATH
+if (os.path.isdir('/data/kylin/bin')):
+    bindir = '/data/kylin/bin'
+else:
+    bindir = sys.path[1]    # the leading entry in $PYTHONPATH
 ## override in known systems
 if (host == 'coma18'):
     bindir = '%s/analysis_burstt/local/bin' % home
-if ('HOSTNAME' in os.environ.keys()):
-    if (hostname.startswith('frblab') or hostname.startswith('burstt') or hostname=='frederici'):
-        bindir = '/data/kylin/bin'
+#if ('HOSTNAME' in os.environ.keys()):
+#    if (hostname.startswith('frblab') or hostname.startswith('burstt') or hostname=='frederici'):
+#        bindir = '/data/kylin/bin'
 
 fcat0 = '%s/YTLA_CAL.csv' % bindir
+#print(fcat0)
 
 def loadDB(fcat=fcat0):
     try:

@@ -647,10 +647,13 @@ b_peak_arr = []
 
 i = nBeam1-1
 max_bid = np.argmax(np.max(a1[:,i], axis=1))
-#print('i=%d'%nBeam1, max_bid, a1[max_bid,i].max())
+#print('i=%d'%i, max_bid, a1[max_bid,i].max())
+#print(np.where(a1[max_bid,i,:] > 0.05*a1[max_bid,i].max()))
 j = np.where(a1[max_bid,i,:] > 0.15*a1[max_bid,i].max())[0][0]
 b_start = (ut2+timedelta(hours=UTCOffset_hr))[j]
 #.strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
+#print('b_start', b_start)
+j_start = j
 
 
 # SH: why #0 beam is treated separately?
@@ -658,21 +661,25 @@ for i in range(nBeam1-1, 0, -1):
     max_bid = np.argmax(np.max(a1[:,i], axis=1))
     b_peak = (ut2+timedelta(hours=UTCOffset_hr))[a1[max_bid,i,:].argmax()]
     #print(i, ut2[a1[max_bid,i,:].argmax()], b_peak)
+    max_bid2 = np.argmax(np.max(a1[:,i-1], axis=1))
+    #print(max_bid, max_bid2)
     y1 = a1[max_bid,i]
-    y2 = a1[max_bid,i-1]
+    y2 = a1[max_bid2,i-1]
     j1 = np.ma.argmax(y1)
     j2 = np.ma.argmax(y2)
+    #print(j1,j2)
     y1.mask = True; y1.mask[j1:j2] = False
     y2.mask = True; y2.mask[j1:j2] = False
     j = np.ma.argmin(np.ma.abs(y1-y2))
     
     b_end = (ut2+timedelta(hours=UTCOffset_hr))[j]
     #.strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
+    #print('b_end', b_end)
 
     # ensure the time is in range for observation scheduling
     if (b_end <= t_start) or (b_start >= t_end): 
         b_start = b_end
-        continue
+        #continue
     elif (b_start < t_start): b_start = t_start
     elif (b_end > t_end): b_end = t_end
 
@@ -680,8 +687,9 @@ for i in range(nBeam1-1, 0, -1):
     b_end_str = b_end.strftime('%Y%m%d_%H%M%S')
     #b_peak_str = b_peak.strftime('%Y%m%d_%H%M%S')
     b_peak_str = b_peak.strftime('%H:%M:%S %m%d%y')
+    y1_max = y1[j1]
 
-    print('Beam %03d (row %02d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, b_start_str, b_end_str))
+    print('Beam %03d (row %02d, beam %02d, peak %.2f): %s - %s' % (max_bid*nBeam1+i, max_bid, i, y1_max, b_start_str, b_end_str))
     #with open(f_out_txt, 'a') as f:
     #    f.write('Beam %03d (row %d, beam %02d): %s - %s\n' % (max_bid*16+i, max_bid, i, b_start, b_end))
     #print('%s %s %d' % (b_start, b_end, max_bid*16+i))
@@ -712,7 +720,10 @@ for i in [0]:
     #b_peak_str = b_peak.strftime('%Y%m%d_%H%M%S')
     b_peak_str = b_peak.strftime('%H:%M:%S %m%d%y')
 
-    print('Beam %03d (row %02d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, b_start_str, b_end_str))
+    y1 = a1[max_bid,i]
+    y1_max = y1.max()
+
+    print('Beam %03d (row %02d, beam %02d, peak %.2f): %s - %s' % (max_bid*nBeam1+i, max_bid, i, y1_max, b_start_str, b_end_str))
     #with open(f_out_txt, 'a') as f:
     #    f.write('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*16+i, max_bid, i, b_start, b_end))
     #print('%s %s %d' % (b_start, b_end, max_bid*16+i))
