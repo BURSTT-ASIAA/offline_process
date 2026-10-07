@@ -80,6 +80,72 @@ def genCov(i1, i2, ftdata):    # internal function for makeCov
 
 def makeCov(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool=1):
     '''
+    generate covariance matrix from the waterfall spectra using the legacy pool implementation
+    input:
+        ftdata, shape: (nAnt, nframe, nchan)
+
+    optional:
+        scale: whether to scale the amplitude among antennas
+        coeff: whether to compute covariance on correlation coefficients
+        ant_flag: a list of antennas that should be flagged
+        bandpass: whether to normalize the bandpass
+        nPool: number of channel partitions sent to the worker pool
+
+    output:
+        Cov, shape: (nAnt, nAnt, nChan)
+        norm, shape: (nAnt, nChan)
+    '''
+    print('in makeCov, nPool:', nPool)
+
+    ftdata = np.ma.asarray(ftdata)
+    (nAnt, nFrame, nChan) = ftdata.shape
+
+    mr = np.ma.median(ftdata.real, axis=1, keepdims=True)
+    mi = np.ma.median(ftdata.imag, axis=1, keepdims=True)
+    nftdata = ftdata - (mr + 1j*mi)
+    norm2 = np.ma.abs(nftdata)
+    norm = norm2.mean(axis=1)
+    avg_norm = norm.mean(axis=0, keepdims=True)
+
+    if coeff:
+        bandpass = True
+    if bandpass:
+        scale = True
+    else:
+        norm /= avg_norm
+
+    if scale:
+        nftdata /= norm.reshape((nAnt, 1, nChan))
+
+    cftdata = ftdata / np.ma.abs(ftdata)
+    Cov = np.zeros((nAnt, nAnt, nChan), dtype=complex)
+
+    nChunk = nChan//nPool
+    if nChan != nPool*nChunk:
+        print('warinng: inconsistent channel split in makeCov!')
+
+    star_args = []
+    for i in range(nPool):
+        i1 = nChunk*i
+        i2 = nChunk*(i+1)
+        arr1 = cftdata[:,:,i1:i2] if coeff else nftdata[:,:,i1:i2]
+        star_args.append((i1,i2,arr1))
+
+    with mp.Pool() as pool:
+        for i1, i2, tmpCov in pool.starmap(genCov, star_args):
+            Cov[:,:,i1:i2] = tmpCov
+
+    for ai in ant_flag:
+        Cov[ai] = 0.j
+        Cov[:,ai] = 0.j
+        norm[ai] = 0.
+        norm.mask[ai] = True
+
+    return Cov, norm
+
+
+def makeCov2(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool=1, chanBlock=8):
+    '''
     generate covariance matrix from the waterfall spectra
     input:
         ftdata, shape: (nAnt, nframe, nchan)
@@ -90,12 +156,14 @@ def makeCov(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool=
         (note: choose none or one of the above, not both.)
         ant_flag: a list of antennas that should be flagged
         bandpass: whether to normalize the bandpass
+        nPool: number of channel partitions (kept for compatibility)
+        chanBlock: maximum number of channels in each matrix-multiply block
 
     output:
         Cov, shape: (nAnt, nAnt, nChan)
         norm, shape: (nAnt, nChan)
     '''
-    print('in makeCov, nPool:', nPool)
+    print('in makeCov2, channel block:', chanBlock)
 
     ftdata = np.ma.asarray(ftdata)
     (nAnt, nFrame, nChan) = ftdata.shape
@@ -126,26 +194,39 @@ def makeCov(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool=
     cftdata = ftdata / np.ma.abs(ftdata)    # for coefficient
 
     Cov = np.zeros((nAnt, nAnt, nChan), dtype=complex)
+    if nPool < 1:
+        raise ValueError('nPool must be at least 1')
+    if chanBlock < 1:
+        raise ValueError('chanBlock must be at least 1')
+    nPool = min(int(nPool), nChan)
+    boundaries = np.linspace(0, nChan, nPool+1, dtype=int)
+    ant_index = np.arange(nAnt)
 
-    nChunk = nChan//nPool
-    if (nChan != nPool*nChunk):
-        print('warinng: inconsistent channel split in makeCov!')
+    covdata = cftdata if coeff else nftdata
+    for partition in range(nPool):
+        part_start = boundaries[partition]
+        part_stop = boundaries[partition+1]
+        diagonal_sum = np.zeros(nAnt, dtype=float)
+        diagonal_count = np.zeros(nAnt, dtype=np.int64)
 
-    star_args = []
-    for i in range(nPool):
-        i1 = nChunk*i
-        i2 = nChunk*(i+1)
-        if (coeff):
-            arr1 = cftdata[:,:,i1:i2]
-        else:
-            arr1 = nftdata[:,:,i1:i2]
-        star_args.append((i1,i2,arr1))
-    #print(star_args)
+        for i1 in range(part_start, part_stop, chanBlock):
+            i2 = min(i1+chanBlock, part_stop)
+            data_block = covdata[:,:,i1:i2]
+            valid = ~np.ma.getmaskarray(data_block)
+            values = np.ma.filled(data_block, 0).transpose(2,0,1)
+            valid = valid.transpose(2,0,1)
+            diagonal_sum += (np.abs(values)**2).sum(axis=(0,2))
+            diagonal_count += valid.sum(axis=(0,2))
+            valid = valid.astype(np.float32)
 
-    with mp.Pool() as pool:
-        for result in pool.starmap(genCov, star_args):
-            i1, i2, tmpCov = result
-            Cov[:,:,i1:i2] = tmpCov
+            sums = values @ values.conj().transpose(0,2,1)
+            counts = valid @ valid.transpose(0,2,1)
+            cov_block = np.divide(sums, counts, out=np.zeros_like(sums), where=counts > 0)
+            Cov[:,:,i1:i2] = cov_block.transpose(1,2,0)
+
+        diagonal = np.divide(diagonal_sum, diagonal_count,
+                out=np.zeros_like(diagonal_sum), where=diagonal_count > 0)
+        Cov[ant_index,ant_index,part_start:part_stop] = diagonal[:,None]
 
     for ai in ant_flag:
         Cov[ai] = 0.j

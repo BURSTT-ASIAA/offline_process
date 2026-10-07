@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 import sys, os.path
+import re
 import time, gc
 from glob import glob
 import matplotlib.pyplot as plt
@@ -90,7 +91,8 @@ options are:
     --nB nB     # specify the block length of the binary data
                 # (default: determined by autoblock %d)
     -o fout     # specify an output file name
-                # (default: %s)
+                # (default: timestamped name in --combine mode,
+                # otherwise %s)
     --flag 'ant(s)'
                 # specify the input number (0--nAnt*nFPGA) to be flagged
     --hd VER    # header version (1, 2)
@@ -240,6 +242,45 @@ print('using theta_rot:', theta_rot)
 
 
 if (combine):
+    file_timestamps = {}
+    combine_rows = []
+    for fbin in files0:
+        timestamp_matches = re.findall(r'(?<!\d)(\d{8}_\d{6}Z)(?!\d)', os.path.basename(fbin))
+        if len(timestamp_matches) != 1:
+            sys.exit('expected one YYYYMMDD_HHMMSSZ timestamp in input filename: %s'%fbin)
+        file_timestamps[fbin] = timestamp_matches[0]
+
+        with open(fbin, 'rb') as fh:
+            fh.seek(64)
+            header = fh.read(64)
+        if len(header) != 64:
+            sys.exit('incomplete 64-byte packet header in %s'%fbin)
+        if header[-8:] != b'BURSTTTT':
+            sys.exit('invalid packet-header trailer in %s: %r'%(fbin,header[-8:]))
+        header_info = decHeader2(header, ip=True, verbose=False)
+        if header_info is None:
+            sys.exit('could not decode packet header in %s'%fbin)
+        source_ip = header_info[5]
+        ip_parts = source_ip.split('.')
+        if len(ip_parts) != 4 or ip_parts[:3] != ['10','17','16']:
+            sys.exit('unexpected source IP in %s: %s'%(fbin,source_ip))
+        row = int(ip_parts[3])-8
+        if row < 0 or row >= 16:
+            sys.exit('source IP %s in %s does not identify row00-row15'%(source_ip,fbin))
+        combine_rows.append(row)
+        print('%s -> row%02d (source IP %s)'%(fbin,row,source_ip))
+
+    if len(set(combine_rows)) != len(combine_rows):
+        sys.exit('multiple input files resolve to the same row: %s'%combine_rows)
+    if rows is not None and rows != combine_rows:
+        sys.exit('--rows %s conflicts with packet-header rows %s'%(rows,combine_rows))
+    rows = combine_rows
+    unique_timestamps = sorted(set(file_timestamps.values()))
+    if len(unique_timestamps) != 1:
+        sys.exit('input files have different timestamps: %s'%', '.join(unique_timestamps))
+    combine_timestamp = unique_timestamps[0]
+    if not user_fout:
+        fout = '1stcal_%s.eigen.h5'%combine_timestamp
     nLoop = 1
     loop_files = [files0]
 else:
@@ -253,7 +294,7 @@ for ll in range(nLoop):
     files = loop_files[ll]
 
     nFile = len(files)
-    if (not user_fout):
+    if (not combine and not user_fout):
         if (nFile == 1):   # override default fout if input is a single file
             fout = files[0] + '.eigen.h5'
     cdir = '%s.check'%fout
@@ -266,11 +307,25 @@ for ll in range(nLoop):
 
     pos = arrayConf(arr_config, nFile, rows=rows, theta_rot=theta_rot)
     #print('debug:', 'pos.shape=',pos.shape, pos)
-    if (aref is None):
-        BVec = pos
-        aref = 0
+    if combine:
+        if aref is None:
+            aref = combine_rows[0]*nAnt
+            aref_index = 0
+            BVec = pos
+        else:
+            ref_row, ref_ant = divmod(aref, nAnt)
+            if ref_row not in combine_rows:
+                sys.exit('reference row%02d from --aref %d is not present in input rows %s'%
+                        (ref_row,aref,combine_rows))
+            aref_index = combine_rows.index(ref_row)*nAnt+ref_ant
+            BVec = pos-pos[aref_index]
     else:
-        BVec = pos - pos[aref]
+        if (aref is None):
+            BVec = pos
+            aref = 0
+        else:
+            BVec = pos - pos[aref]
+        aref_index = aref
 
 
     if (os.path.isfile(fout) and not redo):
@@ -487,72 +542,299 @@ for ll in range(nLoop):
         adoneh5(fout, EWoff, 'EWoff')
         adoneh5(fout, NSoff, 'NSoff')
 
-        ## calculate SEFD
-        flux = f410 + (freq-410)*(f610-f410)/200.
-        flux *= att0[0]
+        if not combine:
+            ## calculate SEFD
+            flux = f410 + (freq-410)*(f610-f410)/200.
+            flux *= att0[0]
 
-        SEFD1 = flux.reshape((1,nChan))/np.ma.abs(coeff1) * (1.-np.ma.abs(coeff1))
-        lam = 2.998e8/(freq*1e6)  # meter
-        mSEFD1 = SEFD1 / (freq/400.)**2
+            SEFD1 = flux.reshape((1,nChan))/np.ma.abs(coeff1) * (1.-np.ma.abs(coeff1))
+            lam = 2.998e8/(freq*1e6)  # meter
+            mSEFD1 = SEFD1 / (freq/400.)**2
 
-        ## solve for each antenna
-        # construct matrix B: 
-        B = np.zeros((nBl, nAnt))
-        b = -1
-        for ai in range(nAnt-1):
-            for aj in range(ai+1, nAnt):
-                b += 1
-                if (ai in ant_flag or aj in ant_flag):
-                    continue # keep coefficient as zero
-                else:
-                    B[b,ai] = 0.5
-                    B[b,aj] = 0.5
+            ## solve for each antenna
+            # construct matrix B: 
+            B = np.zeros((nBl, nAnt))
+            b = -1
+            for ai in range(nAnt-1):
+                for aj in range(ai+1, nAnt):
+                    b += 1
+                    if (ai in ant_flag or aj in ant_flag):
+                        continue # keep coefficient as zero
+                    else:
+                        B[b,ai] = 0.5
+                        B[b,aj] = 0.5
 
+            Binv = pinv(B)
+            D = np.log10(mSEFD1)
+            M = np.dot(Binv, D)
+            BM = np.dot(B, M)
+            R = BM - D
+            amSEFD1 = 10**(M)
+            adoneh5(fout, amSEFD1, 'SEFD400')
+            med_SEFD = np.median(amSEFD1, axis=0, keepdims=True)
+            del_SEFD = amSEFD1/med_SEFD
+            wt_SEFD = 1./np.median(del_SEFD[:,chlim[0]:chlim[1]], axis=1)
+            print('wt_SEFD:', wt_SEFD)
+            med_aSEFD = np.median(amSEFD1[:,chlim[0]:chlim[1]], axis=1)
+            adoneh5(fout, wt_SEFD, 'wt_SEFD')
 
-        # pseudo-inverse
-        Binv = pinv(B)
-        # shape (nAnt, nBl)
+            fig, s2d = plt.subplots(4,4,figsize=(12,8), sharex=True, sharey=True)
+            sub = s2d.flatten()
+            for ai in range(nAnt):
+                ax = sub[ai]
+                ax.plot(freq, amSEFD1[ai]/1e6)
+                ax.set_yscale('log')
+                ax.set_ylim(0.02, 5.00)
+                ax.grid(True, which='both')
+                ax.text(0.02, 0.02, 'Ant%02d: %.3fMJy'%(ai+1, med_aSEFD[ai]/1e6), color='r', transform=ax.transAxes)
+                ax.axhline(med_aSEFD[ai]/1e6, color='r', ls=':')
 
-        # model M = Ainv . D
-        # residual R = B . M - D
-        D = np.log10(mSEFD1)    # data, shape:(nBl, nChan)
-        M = np.dot(Binv, D)     # model, shape:(nAnt, nChan)
-        BM = np.dot(B, M)
-        R = BM - D              # residual, shape: (nBl, nChan)
-        amSEFD1 = 10**(M)       # linear modified SEFD per ant, shape: (nAnt, nChan)
-        adoneh5(fout, amSEFD1, 'SEFD400')
-        med_SEFD = np.median(amSEFD1, axis=0, keepdims=True) # median between antennas
-        del_SEFD = amSEFD1/med_SEFD
-        wt_SEFD = 1./np.median(del_SEFD[:,chlim[0]:chlim[1]], axis=1) # weighting based on relative SEFD
-        print('wt_SEFD:', wt_SEFD)
-        med_aSEFD = np.median(amSEFD1[:,chlim[0]:chlim[1]], axis=1)
-        adoneh5(fout, wt_SEFD, 'wt_SEFD')
+            for i in range(4):
+                s2d[i,0].set_ylabel('mSEFD (MJy)')
+                s2d[3,i].set_xlabel('freq (MHz)')
 
-
-        fig, s2d = plt.subplots(4,4,figsize=(12,8), sharex=True, sharey=True)
-        sub = s2d.flatten()
-        for ai in range(nAnt):
-            ax = sub[ai]
-            ax.plot(freq, amSEFD1[ai]/1e6)
-            ax.set_yscale('log')
-            ax.set_ylim(0.02, 5.00)
-            ax.grid(True, which='both')
-            ax.text(0.02, 0.02, 'Ant%02d: %.3fMJy'%(ai+1, med_aSEFD[ai]/1e6), color='r', transform=ax.transAxes)
-            ax.axhline(med_aSEFD[ai]/1e6, color='r', ls=':')
-
-        for i in range(4):
-            s2d[i,0].set_ylabel('mSEFD (MJy)')
-            s2d[3,i].set_xlabel('freq (MHz)')
-
-        fig.tight_layout()
-        fig.subplots_adjust(wspace=0, hspace=0)
-        fig.savefig('%s/ant_SEFD.png'%cdir)
-        plt.close(fig)
+            fig.tight_layout()
+            fig.subplots_adjust(wspace=0, hspace=0)
+            fig.savefig('%s/ant_SEFD.png'%cdir)
+            plt.close(fig)
 
 
 
 
     (nChan3, nAnt3, nMode3) = savV3.shape
+    if combine:
+        if nAnt3 % nAnt:
+            sys.exit('combined antenna count %d is not divisible by nAnt=%d'%(nAnt3,nAnt))
+        nRow3 = nAnt3//nAnt
+        if nRow3 != len(combine_rows):
+            sys.exit('combined antenna rows (%d) do not match packet-header rows (%d)'%(nRow3,len(combine_rows)))
+        nBl3 = nAnt*(nAnt-1)//2
+        outbase = os.path.basename(fout)
+
+        freq2 = freq*1e6
+        c_arr = phiCorr(tauGeo, freq2).conjugate()
+        LV3 = savV3[:,:,-1].copy()
+        ref = np.ma.exp(1.j*np.ma.angle(LV3[:,aref_index]))
+        LV3 /= ref.reshape((-1,1))
+        LV3C = LV3*c_arr.T.reshape((nChan3,nAnt3))
+        refC = np.ma.exp(1.j*np.ma.angle(LV3C[:,aref_index]))
+        LV3C /= refC.reshape((-1,1))
+
+        NLV3C = savN3.T*LV3C
+        NLV3C.fill_value = 0j
+        NLV3C2 = 1./savN3.T*LV3C
+        NLV3C2.fill_value = 0j
+        adoneh5(fout, LV3C, 'antCal')
+
+        antenna_median_amp = np.ma.median(np.ma.abs(LV3C), axis=0)
+        amplitude_map = np.ma.masked_all((16,16), dtype=float)
+        for file_index, physical_row in enumerate(combine_rows):
+            ant_slice = slice(file_index*nAnt,(file_index+1)*nAnt)
+            amplitude_map[physical_row,:] = antenna_median_amp[ant_slice]
+
+        amp_fig, amp_ax = plt.subplots(figsize=(10,8))
+        amp_image = amp_ax.imshow(amplitude_map, origin='lower', aspect='equal',
+                interpolation='nearest', cmap='coolwarm_r')
+        amp_ax.set_xticks(np.arange(16), labels=np.arange(16))
+        amp_ax.set_yticks(np.arange(16), labels=['row%02d'%row for row in range(16)])
+        amp_ax.set_xlabel('antenna ID within row')
+        amp_ax.set_ylabel('physical row')
+        amp_ax.set_title('%s: leading eigenvector median amplitude'%combine_timestamp)
+        amp_fig.colorbar(amp_image, ax=amp_ax, label='median |eigenvector|')
+        amp_fig.tight_layout()
+        amp_fig.savefig(os.path.join(cdir,outbase+'.amp_median.png'))
+        plt.close(amp_fig)
+
+        amplitude_power = amplitude_map**2
+        relative_map = amplitude_power/np.ma.median(amplitude_power)
+        cap = 4.
+        weight_vmin = 1./cap
+        weight_vmax = cap
+        weight_norm = plt.matplotlib.colors.LogNorm(vmin=weight_vmin,vmax=weight_vmax,clip=True)
+        weight_fig, weight_ax = plt.subplots(figsize=(10,8))
+        weight_image = weight_ax.imshow(relative_map, origin='lower', aspect='equal',
+                interpolation='nearest', cmap='coolwarm_r', norm=weight_norm)
+        weight_ax.set_xticks(np.arange(16), labels=np.arange(16))
+        weight_ax.set_yticks(np.arange(16), labels=['row%02d'%row for row in range(16)])
+        weight_ax.set_xlabel('antenna ID within row')
+        weight_ax.set_ylabel('physical row')
+        weight_ax.set_title('%s: relative SEFD for each antenna'%combine_timestamp)
+        colorbar = weight_fig.colorbar(weight_image, ax=weight_ax, ticks=[1./cap,1.,cap])
+        colorbar.set_label('relative SEFD (squared eigenvector; log scale)')
+        colorbar.ax.set_yticklabels(['1/4','1.0','4'])
+        weight_fig.tight_layout()
+        weight_fig.savefig(os.path.join(cdir,outbase+'.amp_relative.png'))
+        plt.close(weight_fig)
+
+        VrefTau = LV3C.copy()
+        FTVref = np.fft.fftshift(np.fft.fft(VrefTau, n=int(nChan*pad), axis=0), axes=0)
+        peak_lag = np.abs(FTVref).argmax(axis=0)-int(pad*nChan/2)
+        peak_ns = peak_lag*1e9/400e6/pad
+        VrefC = VrefTau*np.exp(-2j*np.pi*peak_ns.reshape((1,-1))*freq.reshape((-1,1))*1e-3)
+
+        flux = f410+(freq-410)*(f610-f410)/200.
+        flux *= att0[0]
+        all_coeff = np.ma.masked_all((nRow3*nBl3,nChan3),dtype=complex)
+        all_SEFD = np.ma.masked_all((nAnt3,nChan3))
+        flagged = set(ant_flag)
+        for row in range(nRow3):
+            first = row*nAnt
+            last = first+nAnt
+            row_vec = savV3[:,first:last,:]
+            row_cov = np.einsum('cik,ck,cjk->cij',row_vec,savW3,row_vec.conjugate(),optimize=True)
+            row_coeff = np.ma.masked_all((nBl3,nChan3),dtype=complex)
+            B = np.zeros((nBl3,nAnt))
+            bidx = -1
+            for ai in range(nAnt-1):
+                for aj in range(ai+1,nAnt):
+                    bidx += 1
+                    row_coeff[bidx] = row_cov[:,ai,aj]
+                    if first+ai not in flagged and first+aj not in flagged:
+                        B[bidx,ai] = 0.5
+                        B[bidx,aj] = 0.5
+            all_coeff[row*nBl3:(row+1)*nBl3] = row_coeff
+
+            coeff_abs = np.ma.abs(row_coeff)
+            sefd_bl = flux.reshape((1,nChan3))/coeff_abs*(1.-coeff_abs)
+            sefd_bl /= (freq/400.)**2
+            sefd_bl = np.ma.masked_where((coeff_abs<=0.)|(coeff_abs>=1.),sefd_bl)
+            M = np.dot(pinv(B),np.ma.log10(sefd_bl).filled(0.))
+            row_mask = np.array([first+ai in flagged for ai in range(nAnt)]).reshape((-1,1))
+            all_SEFD[first:last] = np.ma.array(10.**M,mask=np.broadcast_to(row_mask,(nAnt,nChan3)))
+
+        del_SEFD = np.ma.masked_all(all_SEFD.shape)
+        wt_SEFD = np.ma.masked_all(nAnt3)
+        for row in range(nRow3):
+            first = row*nAnt
+            last = first+nAnt
+            row_slice = slice(first,last)
+            med_SEFD = np.ma.median(all_SEFD[row_slice],axis=0,keepdims=True)
+            del_SEFD[row_slice] = all_SEFD[row_slice]/med_SEFD
+            wt_SEFD[row_slice] = 1./np.ma.median(del_SEFD[row_slice,chlim[0]:chlim[1]],axis=1)
+        adoneh5(fout,all_coeff,'coeff')
+        adoneh5(fout,all_SEFD,'SEFD400')
+        adoneh5(fout,wt_SEFD,'wt_SEFD')
+
+        med_ampld = np.ma.median(savN3,axis=0)
+        rel_ampld = savN3/med_ampld.reshape((1,-1))
+        med_rel_ampld = np.ma.median(rel_ampld[:,chlim[0]:chlim[1]],axis=1)
+        for row in range(nRow3):
+            first = row*nAnt
+            last = first+nAnt
+            ant_slice = slice(first,last)
+            rowdir = os.path.join(cdir,'row%02d'%combine_rows[row])
+            os.makedirs(rowdir,exist_ok=True)
+            row_coeff = all_coeff[row*nBl3:(row+1)*nBl3]
+            row_SEFD = all_SEFD[ant_slice]
+            row_wt = wt_SEFD[ant_slice]
+            row_med_SEFD = np.ma.median(row_SEFD[:,chlim[0]:chlim[1]],axis=1)
+
+            fig, sub = plt.subplots(3,1,figsize=(15,15),sharex=True)
+            for ai in range(first,last):
+                if ai not in flagged:
+                    sub[0].plot(freq,savN3[ai],label='Ant%d'%ai)
+                    sub[2].plot(freq,np.ma.angle(LV3C[:,ai]),label='Ant%d'%ai)
+            sub[0].set_yscale('log')
+            sub[0].set_ylabel('voltage normalization')
+            sub[0].legend(ncols=4)
+            for mode in range(nMode3):
+                if mode >= nFlag:
+                    sub[1].plot(freq,sigma_clip(10.*np.log10(savW3[:,mode]),sigma=10))
+            sub[1].set_ylabel('power (dB)')
+            sub[2].set_ylabel('phase (rad)')
+            sub[2].set_xlabel('freq (MHz)')
+            sub[2].set_xlim(flim[0],flim[1])
+            fig.tight_layout(rect=[0,0.03,1,0.95])
+            fig.suptitle('%s, row%02d'%(combine_timestamp,row))
+            fig.savefig(os.path.join(rowdir,outbase+'.png'))
+            plt.close(fig)
+
+            fig_phase, sub_phase = plt.subplots(4,4,figsize=(16,8),sharex=True,sharey=True)
+            fig_ampld, sub_ampld = plt.subplots(4,4,figsize=(16,8),sharex=True,sharey=True)
+            fig_weight, sub_weight = plt.subplots(4,4,figsize=(16,8),sharex=True,sharey=True)
+            for local_ant in range(nAnt):
+                ai = first+local_ant
+                ax = sub_phase.flat[local_ant]
+                ax2 = sub_ampld.flat[local_ant]
+                ax3 = sub_weight.flat[local_ant]
+                if ai not in flagged:
+                    ax.plot(freq,np.ma.angle(LV3[:,ai]),label='obs')
+                    ax.plot(freq,np.ma.angle(LV3C[:,ai]),label='inst.')
+                    ax.plot(freq,np.ma.angle(VrefC[:,ai]),color='gray',label='resid.')
+                    ax.text(0.55,0.85,'tau:%.2fns'%peak_ns[ai],transform=ax.transAxes,color='C1')
+                    ax.set_ylim(-3.5,4.5)
+                    ax2.plot(freq,10*np.ma.log10(np.ma.abs(LV3C[:,ai]*savN3[ai])))
+                    ax3.plot(freq,1./rel_ampld[ai],color='b',alpha=0.3)
+                    ax3.axhline(1./med_rel_ampld[ai],color='b',ls='--',label='rel_norm')
+                    ax3.plot(freq,np.abs(LV3C[:,ai])/0.25,color='g',label='abs(V)/0.25')
+                    ax3.plot(freq,1./del_SEFD[ai],color='r',alpha=0.3)
+                    ax3.axhline(row_wt[local_ant],color='r',ls='--',label='wt_SEFD')
+                    ax3.set_ylim(0,2)
+                if ai == aref_index:
+                    ax.legend()
+                for panel in (ax,ax2,ax3):
+                    panel.text(0.05,0.85,'Ant%02d'%ai,transform=panel.transAxes)
+                if local_ant%4 == 0:
+                    ax.set_ylabel('phase (rad)')
+                    ax2.set_ylabel('power (dB)')
+                    ax3.set_ylabel('scaling')
+                if local_ant>=12:
+                    ax.set_xlabel('freq (MHz)')
+                    ax2.set_xlabel('freq (MHz)')
+                    ax3.set_xlabel('freq (MHz)')
+            for figx,suffix,title in ((fig_phase,'phases','phases'),(fig_ampld,'ampld','amplitude'),(fig_weight,'weight','scaling')):
+                figx.tight_layout(rect=[0,0.03,1,0.95])
+                figx.subplots_adjust(wspace=0,hspace=0)
+                figx.suptitle('%s, row%02d, %s'%(combine_timestamp,row,title))
+                figx.savefig(os.path.join(rowdir,'%s.%s.png'%(outbase,suffix)))
+                plt.close(figx)
+
+            fig, s2d = plt.subplots(4,4,figsize=(12,8),sharex=True,sharey=True)
+            for local_ant in range(nAnt):
+                ai = first+local_ant
+                ax = s2d.flat[local_ant]
+                if ai not in flagged:
+                    ax.plot(freq,row_SEFD[local_ant]/1e6)
+                    ax.set_yscale('log')
+                    ax.set_ylim(0.02,5.00)
+                    ax.grid(True,which='both')
+                    ax.axhline(row_med_SEFD[local_ant]/1e6,color='r',ls=':')
+                ax.text(0.02,0.02,'Ant%02d: %.3fMJy'%(ai,row_med_SEFD[local_ant]/1e6),color='r',transform=ax.transAxes)
+                if local_ant%4 == 0:
+                    ax.set_ylabel('mSEFD (MJy)')
+                if local_ant>=12:
+                    ax.set_xlabel('freq (MHz)')
+            fig.tight_layout(rect=[0,0.03,1,0.95])
+            fig.subplots_adjust(wspace=0,hspace=0)
+            fig.suptitle('%s, row%02d, SEFD'%(combine_timestamp,row))
+            fig.savefig(os.path.join(rowdir,outbase+'.ant_SEFD.png'))
+            plt.close(fig)
+
+            np.save(os.path.join(rowdir,outbase+'.antCal.npy'),NLV3C[:,ant_slice].filled())
+            np.save(os.path.join(rowdir,outbase+'.antCal2.npy'),NLV3C2[:,ant_slice].filled())
+            np.savez(os.path.join(rowdir,outbase+'.antCals.npz'),
+                    attrs=attrs,
+                    reference_antenna=aref,
+                    antenna_indices=np.arange(first,last),
+                    atten=att0,
+                    EWoff_deg=EWoff/np.pi*180.,
+                    NSoff_deg=NSoff/np.pi*180.,
+                    tauGeo_sec=tauGeo[ant_slice],
+                    tauGeo_attrs=attrs2,
+                    tauI_ns=peak_ns[ant_slice],
+                    phiCorr=c_arr[ant_slice],
+                    freq_MHz=freq,
+                    winSec=tsec,
+                    auto=savN3[ant_slice].T,
+                    eigenvector=LV3C[:,ant_slice],
+                    antCal2=NLV3C2[:,ant_slice].filled(),
+                    coeff=row_coeff,
+                    wt_SEFD=row_wt,
+                    SEFD400=row_SEFD)
+        t3 = time.time()
+        print('... all done. elapsed:',t3-t00)
+        continue
+
     nCol = nAnt3//nAnt
 
     ## plot normalization and eigenvalues
@@ -645,12 +927,12 @@ for ll in range(nLoop):
     LV3  = savV3[:,:,-1]                            # uncorrected eigenvector
     ## LV3.shape = (nChan, nAnt)
     ## uncorrected eigenvector, not used
-    ref  = np.ma.exp(1.j*np.ma.angle(LV3[:,aref]))   # uncorrected phase of antenna aref
+    ref  = np.ma.exp(1.j*np.ma.angle(LV3[:,aref_index]))   # uncorrected phase of antenna aref
     LV3  /= ref.reshape((-1,1))                     # uncorrected eigenvector referenced to aref
 
     ## tauGeo corrected eigenvector
     LV3C = LV3 * c_arr.T.reshape((nChan, nAnt3))    # eigenvector with tauGeo corrected
-    refC  = np.ma.exp(1.j*np.ma.angle(LV3C[:,aref])) # corrected phase of antenna aref
+    refC  = np.ma.exp(1.j*np.ma.angle(LV3C[:,aref_index])) # corrected phase of antenna aref
     LV3C  /= refC.reshape((-1,1))                   # corrected eigenvector referenced to aref
 
     ## version 1, with incorrect weighting
@@ -709,7 +991,7 @@ for ll in range(nLoop):
                 ax3.plot(freq, 1/del_SEFD[ai], color='r', alpha=0.3)
                 ax3.axhline(wt_SEFD[ai], color='r', ls='--', label='wt_SEFD')
                 ax3.set_ylim(0,2)
-            if (ai == aref):
+            if (ai == aref_index):
                 ax.legend()
 
             #ax.legend()

@@ -42,6 +42,7 @@ pts     = [1]
 nFWin   = 1     # number of windows to read per file
 sepWin  = 100   # separation of windows in blocks
 sepSec  = blocklen*2.56e-6*sepWin   # separation of windows in sec
+subicb  = False # whether to subtract the incoherent beam
 
 
 usage   = '''
@@ -67,6 +68,7 @@ options are:
     --raw           # plot the raw intensity
                     # (default is to plot the normalized intensity)
     --both          # plot both raw and normalized intensities
+    --subicb        # subtract the incoherent beam
 
 ''' % (pg, nSum, blocklen, nFWin)
 
@@ -85,7 +87,11 @@ while (inp):
     elif (k=='--redo'):
         read_raw = True
     elif (k == '--rows'):
-        rows = [int(x) for x in inp.pop(0).split()]
+        tmp = inp.pop(0)
+        if (tmp == 'all'):
+            rows = np.arange(nRow)
+        else:
+            rows = [int(x) for x in tmp.split()]
     elif (k=='--zlim'):
         zmin = float(inp.pop(0))
         zmax = float(inp.pop(0))
@@ -112,6 +118,8 @@ while (inp):
         pts = [0]
     elif (k=='--both'):
         pts = [0, 1]
+    elif (k == '--subicb'):
+        subicb = True
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -273,10 +281,17 @@ sub2 = tmp[1::2]
 if (combine):
     freq1 = np.concatenate(freqs, axis=0)
     arrNInt = np.concatenate(arrNInts, axis=1)  # combine along freq
+    if (subicb):
+        print('subtracting incoherent beam')
+        icb = arrNInt.mean(axis=(2,3), keepdims=True)
+        micb = np.median(icb)
+        arrNInt -= (icb - micb)
+        #print(icb)
     if (chlim[1] > len(freq1)):
         chlim[1] = len(freq1)
     #mapNInt = arrNInt[:,chlim[0]:chlim[1]].mean(axis=1)
     mapNInt = np.median(arrNInt[:,chlim[0]:chlim[1]], axis=1)
+
     if (zlim is None):
         vmin = arrNInt.min()
         vmax = arrNInt.max()
@@ -284,6 +299,7 @@ if (combine):
         vmin = zlim[0]
         vmax = zlim[1]
     print('zmin,zmax:', vmin, vmax)
+
     winSec = tsecs[0]
     winDT = Time(loc0+winSec, format='unix').to_datetime()
     X = winDT
@@ -295,7 +311,11 @@ if (combine):
 
         pngp = '%s/prof_row%02d.png'%(odir2, j)
         figp, axp = plt.subplots(1,1,figsize=(12,6))
-        axp.set_title('%s: row %d, chlim:[%d,%d]'%(dataset, j,chlim[0],chlim[1]))
+        if (subicb):
+            misc = ', subicb'
+        else:
+            misc = ''
+        axp.set_title('%s: row %d, chlim:[%d,%d]%s'%(dataset, j,chlim[0],chlim[1],misc))
         for ai in range(nAnt):
             ax = sub[nRow2-1-jj, ai]
             ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')

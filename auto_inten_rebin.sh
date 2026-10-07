@@ -73,6 +73,7 @@ plot_args=(
 	--fwin 4
 	--zlim "$ZMIN" "$ZMAX"
 	--rows "$ROWS"
+	--subicb
 	-v
 )
 
@@ -98,8 +99,8 @@ for ring_dir in 15 16; do
 	esac
 	echo $beam_dir $ring
 	plot_ring "$ring" "$beam_dir"
-	if [[ $ring_dir == 15 ]]; then
-		plot_ring 0 "$beam_dir"
-	fi
+	#if [[ $ring_dir == 15 ]]; then
+	#	plot_ring 0 "$beam_dir"
+	#fi
 done
 
