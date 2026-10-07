@@ -245,10 +245,13 @@ if (combine):
     file_timestamps = {}
     combine_rows = []
     for fbin in files0:
-        timestamp_matches = re.findall(r'(?<!\d)(\d{8}_\d{6}Z)(?!\d)', os.path.basename(fbin))
+        timestamp_matches = re.findall(r'(?<!\d)(\d{8}_\d{6}Z|\d{14})(?!\d)', os.path.basename(fbin))
         if len(timestamp_matches) != 1:
-            sys.exit('expected one YYYYMMDD_HHMMSSZ timestamp in input filename: %s'%fbin)
-        file_timestamps[fbin] = timestamp_matches[0]
+            sys.exit('expected one YYYYMMDD_HHMMSSZ or YYYYMMDDHHMMSS timestamp in input filename: %s'%fbin)
+        timestamp = timestamp_matches[0]
+        if len(timestamp) == 14:
+            timestamp = '%s_%sZ'%(timestamp[:8],timestamp[8:])
+        file_timestamps[fbin] = timestamp
 
         with open(fbin, 'rb') as fh:
             fh.seek(64)
