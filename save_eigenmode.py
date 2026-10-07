@@ -611,6 +611,7 @@ for ll in range(nLoop):
         nRow3 = nAnt3//nAnt
         if nRow3 != len(combine_rows):
             sys.exit('combined antenna rows (%d) do not match packet-header rows (%d)'%(nRow3,len(combine_rows)))
+        eigenvector_norm = np.sqrt(nRow3*nAnt)
         nBl3 = nAnt*(nAnt-1)//2
         outbase = os.path.basename(fout)
 
@@ -724,6 +725,7 @@ for ll in range(nLoop):
         for row in range(nRow3):
             first = row*nAnt
             last = first+nAnt
+            physical_first = combine_rows[row]*nAnt
             ant_slice = slice(first,last)
             rowdir = os.path.join(cdir,'row%02d'%combine_rows[row])
             os.makedirs(rowdir,exist_ok=True)
@@ -735,8 +737,9 @@ for ll in range(nLoop):
             fig, sub = plt.subplots(3,1,figsize=(15,15),sharex=True)
             for ai in range(first,last):
                 if ai not in flagged:
-                    sub[0].plot(freq,savN3[ai],label='Ant%d'%ai)
-                    sub[2].plot(freq,np.ma.angle(LV3C[:,ai]),label='Ant%d'%ai)
+                    physical_ai = physical_first+(ai-first)
+                    sub[0].plot(freq,savN3[ai],label='Ant%d'%physical_ai)
+                    sub[2].plot(freq,np.ma.angle(LV3C[:,ai]),label='Ant%d'%physical_ai)
             sub[0].set_yscale('log')
             sub[0].set_ylabel('voltage normalization')
             sub[0].legend(ncols=4)
@@ -748,7 +751,7 @@ for ll in range(nLoop):
             sub[2].set_xlabel('freq (MHz)')
             sub[2].set_xlim(flim[0],flim[1])
             fig.tight_layout(rect=[0,0.03,1,0.95])
-            fig.suptitle('%s, row%02d'%(combine_timestamp,row))
+            fig.suptitle('%s, row%02d'%(combine_timestamp,combine_rows[row]))
             fig.savefig(os.path.join(rowdir,outbase+'.png'))
             plt.close(fig)
 
@@ -757,6 +760,7 @@ for ll in range(nLoop):
             fig_weight, sub_weight = plt.subplots(4,4,figsize=(16,8),sharex=True,sharey=True)
             for local_ant in range(nAnt):
                 ai = first+local_ant
+                physical_ai = physical_first+local_ant
                 ax = sub_phase.flat[local_ant]
                 ax2 = sub_ampld.flat[local_ant]
                 ax3 = sub_weight.flat[local_ant]
@@ -769,14 +773,14 @@ for ll in range(nLoop):
                     ax2.plot(freq,10*np.ma.log10(np.ma.abs(LV3C[:,ai]*savN3[ai])))
                     ax3.plot(freq,1./rel_ampld[ai],color='b',alpha=0.3)
                     ax3.axhline(1./med_rel_ampld[ai],color='b',ls='--',label='rel_norm')
-                    ax3.plot(freq,np.abs(LV3C[:,ai])/0.25,color='g',label='abs(V)/0.25')
+                    ax3.plot(freq,np.abs(LV3C[:,ai])*eigenvector_norm,color='g',label='abs(V)*sqrt(nRow*nAnt)')
                     ax3.plot(freq,1./del_SEFD[ai],color='r',alpha=0.3)
                     ax3.axhline(row_wt[local_ant],color='r',ls='--',label='wt_SEFD')
                     ax3.set_ylim(0,2)
                 if ai == aref_index:
                     ax.legend()
                 for panel in (ax,ax2,ax3):
-                    panel.text(0.05,0.85,'Ant%02d'%ai,transform=panel.transAxes)
+                    panel.text(0.05,0.85,'Ant%03d'%physical_ai,transform=panel.transAxes)
                 if local_ant%4 == 0:
                     ax.set_ylabel('phase (rad)')
                     ax2.set_ylabel('power (dB)')
@@ -788,13 +792,14 @@ for ll in range(nLoop):
             for figx,suffix,title in ((fig_phase,'phases','phases'),(fig_ampld,'ampld','amplitude'),(fig_weight,'weight','scaling')):
                 figx.tight_layout(rect=[0,0.03,1,0.95])
                 figx.subplots_adjust(wspace=0,hspace=0)
-                figx.suptitle('%s, row%02d, %s'%(combine_timestamp,row,title))
+                figx.suptitle('%s, row%02d, %s'%(combine_timestamp,combine_rows[row],title))
                 figx.savefig(os.path.join(rowdir,'%s.%s.png'%(outbase,suffix)))
                 plt.close(figx)
 
             fig, s2d = plt.subplots(4,4,figsize=(12,8),sharex=True,sharey=True)
             for local_ant in range(nAnt):
                 ai = first+local_ant
+                physical_ai = physical_first+local_ant
                 ax = s2d.flat[local_ant]
                 if ai not in flagged:
                     ax.plot(freq,row_SEFD[local_ant]/1e6)
@@ -802,14 +807,14 @@ for ll in range(nLoop):
                     ax.set_ylim(0.02,5.00)
                     ax.grid(True,which='both')
                     ax.axhline(row_med_SEFD[local_ant]/1e6,color='r',ls=':')
-                ax.text(0.02,0.02,'Ant%02d: %.3fMJy'%(ai,row_med_SEFD[local_ant]/1e6),color='r',transform=ax.transAxes)
+                ax.text(0.02,0.02,'Ant%03d: %.3fMJy'%(physical_ai,row_med_SEFD[local_ant]/1e6),color='r',transform=ax.transAxes)
                 if local_ant%4 == 0:
                     ax.set_ylabel('mSEFD (MJy)')
                 if local_ant>=12:
                     ax.set_xlabel('freq (MHz)')
             fig.tight_layout(rect=[0,0.03,1,0.95])
             fig.subplots_adjust(wspace=0,hspace=0)
-            fig.suptitle('%s, row%02d, SEFD'%(combine_timestamp,row))
+            fig.suptitle('%s, row%02d, SEFD'%(combine_timestamp,combine_rows[row]))
             fig.savefig(os.path.join(rowdir,outbase+'.ant_SEFD.png'))
             plt.close(fig)
 
@@ -818,7 +823,7 @@ for ll in range(nLoop):
             np.savez(os.path.join(rowdir,outbase+'.antCals.npz'),
                     attrs=attrs,
                     reference_antenna=aref,
-                    antenna_indices=np.arange(first,last),
+                    antenna_indices=np.arange(physical_first,physical_first+nAnt),
                     atten=att0,
                     EWoff_deg=EWoff/np.pi*180.,
                     NSoff_deg=NSoff/np.pi*180.,

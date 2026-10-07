@@ -22,11 +22,12 @@ cals = ['antCal.npy', 'antCal2.npy', 'antCals.npz']
 usage = '''
 copy 1st cals into a folder for rfsoc
 syntax:
-    %s <site> [--mode eigen|recal] [--source recal-check-folder]
+    %s <site> [--mode eigen|recal|1stcal] [--source check-folder]
 
     --mode eigen   copy per-FPGA eigenmode calibration files (default)
     --mode recal   copy 16-row recal256 calibration files
-    --source DIR   recal256 .check directory (default: newest matching folder)
+    --mode 1stcal  copy row calibration files from combined first calibration
+    --source DIR   source .check directory (default: newest matching folder)
 ''' % (pg,)
 
 if (len(inp)<1):
@@ -48,40 +49,52 @@ while (inp):
 
 if (site is None):
     sys.exit(usage)
-if (mode not in ('eigen', 'recal')):
-    sys.exit('unknown mode: %s (expected eigen or recal)'%mode)
+if (mode not in ('eigen', 'recal', '1stcal')):
+    sys.exit('unknown mode: %s (expected eigen, recal, or 1stcal)'%mode)
 if (site not in site_ips):
     sys.exit('unknown site: %s'%site)
 
 ips = site_ips[site]
 mrow = len(ips) # max rows defined in fpga_alias
 
-if (mode == 'recal'):
+if (mode in ('recal', '1stcal')):
+    source_prefix = 'recal256' if mode == 'recal' else '1stcal'
+    source_pattern = r'%s_(\d{8})_(\d{6})Z\.eigen\.h5\.check'%source_prefix
     if (recal_source is None):
         current_dir = os.path.abspath('.')
         current_name = os.path.basename(current_dir)
-        if (re.fullmatch(r'recal256_\d{8}_\d{6}Z\.eigen\.h5\.check', current_name)):
+        if (re.fullmatch(source_pattern, current_name)):
             recal_source = current_dir
         else:
-            candidates = glob('recal256_*.eigen.h5.check')
+            candidates = glob('%s_*.eigen.h5.check'%source_prefix)
             candidates = [d for d in candidates if os.path.isdir(d)]
             if not candidates:
-                sys.exit('no recal256_*.eigen.h5.check directory found')
+                sys.exit('no %s_*.eigen.h5.check directory found'%source_prefix)
             recal_source = max(candidates)
     recal_source = os.path.abspath(recal_source)
     source_name = os.path.basename(recal_source.rstrip(os.sep))
-    match = re.fullmatch(r'recal256_(\d{8})_(\d{6})Z\.eigen\.h5\.check', source_name)
+    match = re.fullmatch(source_pattern, source_name)
     if (not os.path.isdir(recal_source) or match is None):
-        sys.exit('invalid recal source directory: %s'%recal_source)
-    if (mrow < 16):
-        sys.exit('site %s has %d FPGA rows; recal mode requires 16'%(site,mrow))
+        sys.exit('invalid %s source directory: %s'%(mode,recal_source))
+
+    if (mode == 'recal'):
+        if (mrow < 16):
+            sys.exit('site %s has %d FPGA rows; recal mode requires 16'%(site,mrow))
+        copy_rows = list(range(16))
+    else:
+        copy_rows = sorted(int(os.path.basename(rowdir)[3:]) for rowdir in glob(os.path.join(recal_source,'row[0-9][0-9]')) if os.path.isdir(rowdir))
+        if not copy_rows:
+            sys.exit('no rowNN directories found in %s'%recal_source)
+        invalid_rows = [row for row in copy_rows if row >= mrow]
+        if invalid_rows:
+            sys.exit('site %s has no FPGA mapping for physical rows: %s'%(site,invalid_rows))
 
     ymd = datetime.strptime(match.group(1), '%Y%m%d').strftime('%y%m%d')
-    odir = f'{site}_recal_{ymd}'
+    odir = f'{site}_{mode}_{ymd}'
     os.makedirs(odir, exist_ok=True)
     eigen_basename = source_name[:-6]
     copies = []
-    for rr in range(16):
+    for rr in copy_rows:
         rowdir = os.path.join(recal_source, 'row%02d'%rr)
         fname = fpga_alias[ips[rr]]
         fid = fpga_id[fname]
