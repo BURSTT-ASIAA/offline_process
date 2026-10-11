@@ -162,6 +162,8 @@ options are:
     --end HHMMSS        # end time for data recording in HHMMSS or yyyymmdd_HHMMSS format
                         # Use YYYYMMDD_HHMMSS if the end date differs from <date>.
                         # (default: 4 hours ahead of the transit time)
+    --mark time1 time2  # mark a local-time range in transparent red on the plot
+                        # each time is HHMMSS or YYYYMMDD-HHMMSS
     --tlim tr_low tr_hi # plot time range in hours from transit time
                         # If --start or --end is given, --tlim will be adjusted.
                         # (default: {tlim[0]:.1f} {tlim[1]:.1f})
@@ -233,6 +235,11 @@ while(inp):
     elif (k == '--end'):
         t_rec_end = str(inp.pop(0))
         if len(t_rec_end) not in (15, 6): sys.exit('The format of --end is wrong')
+    elif (k == '--mark'):
+        mark_start = str(inp.pop(0))
+        mark_end = str(inp.pop(0))
+        if len(mark_start) not in (15, 6) or len(mark_end) not in (15, 6):
+            sys.exit('The format of --mark is wrong; use HHMMSS or YYYYMMDD-HHMMSS')
     elif (k == '--sign'):
         sign = int(inp.pop(0))
     elif (k == '--tsamp'):
@@ -813,6 +820,18 @@ if (saveNPZ):
 
 #ax.set_xlim([t_trans_utc + timedelta(hours=tlim[0]+ UTCOffset_hr), t_trans_utc + timedelta(hours=tlim[1]+8)])
 ax.set_xlim(x_min, x_max)
+
+if 'mark_start' in globals():
+    def parse_mark_time(value):
+        if len(value) == 15:
+            return datetime.strptime(value, '%Y%m%d-%H%M%S')
+        return datetime.strptime(obsdate+'-'+value, '%Y%m%d-%H%M%S')
+
+    mark_start_dt = parse_mark_time(mark_start)
+    mark_end_dt = parse_mark_time(mark_end)
+    if mark_end_dt <= mark_start_dt:
+        sys.exit('--mark end time must be later than start time')
+    ax.axvspan(mark_start_dt, mark_end_dt, color='red', alpha=0.3, zorder=0)
 
 # label E-W beams
 for i in range(nBeam1):

@@ -419,6 +419,42 @@ for ll in range(nLoop):
     NLV3C2.fill_value = 0j
     adoneh5(fout, LV3C, 'antCal')
 
+    antenna_median_amp = np.ma.median(np.ma.abs(LV3C), axis=0)
+    amplitude_map = antenna_median_amp.reshape((nFPGA,nAnt))
+    outbase = os.path.basename(fout)
+
+    amp_fig, amp_ax = plt.subplots(figsize=(10,8))
+    amp_image = amp_ax.imshow(amplitude_map, origin='lower', aspect='equal',
+            interpolation='nearest', cmap='coolwarm_r')
+    amp_ax.set_xticks(np.arange(nAnt), labels=np.arange(nAnt))
+    amp_ax.set_yticks(np.arange(nFPGA), labels=['row%02d'%row for row in range(nFPGA)])
+    amp_ax.set_xlabel('antenna ID within row')
+    amp_ax.set_ylabel('physical row')
+    amp_ax.set_title('%s: leading eigenvector median amplitude'%input_timestamp)
+    amp_fig.colorbar(amp_image, ax=amp_ax, label='median |eigenvector|')
+    amp_fig.tight_layout()
+    amp_fig.savefig(os.path.join(cdir,outbase+'.amp_median.png'))
+    plt.close(amp_fig)
+
+    amplitude_power = amplitude_map**2
+    relative_map = amplitude_power/np.ma.median(amplitude_power)
+    cap = 4.
+    weight_norm = plt.matplotlib.colors.LogNorm(vmin=1./cap,vmax=cap,clip=True)
+    weight_fig, weight_ax = plt.subplots(figsize=(10,8))
+    weight_image = weight_ax.imshow(relative_map, origin='lower', aspect='equal',
+            interpolation='nearest', cmap='coolwarm_r', norm=weight_norm)
+    weight_ax.set_xticks(np.arange(nAnt), labels=np.arange(nAnt))
+    weight_ax.set_yticks(np.arange(nFPGA), labels=['row%02d'%row for row in range(nFPGA)])
+    weight_ax.set_xlabel('antenna ID within row')
+    weight_ax.set_ylabel('physical row')
+    weight_ax.set_title('%s: relative SEFD for each antenna'%input_timestamp)
+    colorbar = weight_fig.colorbar(weight_image, ax=weight_ax, ticks=[1./cap,1.,cap])
+    colorbar.set_label('relative SEFD (squared eigenvector; log scale)')
+    colorbar.ax.set_yticklabels(['1/4','1.0','4'])
+    weight_fig.tight_layout()
+    weight_fig.savefig(os.path.join(cdir,outbase+'.amp_relative.png'))
+    plt.close(weight_fig)
+
     VrefTau = LV3C.copy()
     FTVref = np.fft.fftshift(np.fft.fft(VrefTau, n=int(nChan*pad), axis=0), axes=0)
     peak_lag = np.abs(FTVref).argmax(axis=0) - int(pad*nChan/2)
