@@ -240,18 +240,3 @@ def plot_masked_pcolormesh(ax, x, y, data_2d, freq_mask=None, time_mask=None, vm
     final_masked = np.ma.array(data_2d, mask=invalid_masked.mask | overlay_mask)
     return final_masked
 
-def get_beam_colors(nAnt, darken_factor=0.8, cmap_name='gist_rainbow'):
-    """
-    Generates a list of darkened colors for nAnt antennas in a single call.
-    """
-    #turbo gist_rainbow nipy_spectral, rainbow: green is too light, need to be darkened
-
-    base_cmap = plt.get_cmap(cmap_name)
-    # Calculate rainbow color based on beam index
-    indices = np.linspace(0, 1, nAnt)
-    colors = base_cmap(indices)
-    
-    # Darken RGB components (first 3 columns), keep Alpha (last column)
-    colors[:, :3] *= darken_factor
-    #dark_c = (orig_c[0]*0.8, orig_c[1]*0.8, orig_c[2]*0.8, 1.0)
-    return colors

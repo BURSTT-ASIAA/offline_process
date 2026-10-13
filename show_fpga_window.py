@@ -12,6 +12,8 @@ from pyplanet import *
 from delay_func2 import *
 from array_func import blsubplots
 
+import plot_util
+
 DB = loadDB()
 
 inp = sys.argv[0:]
@@ -374,8 +376,8 @@ for fvis in files:
                         ax.plot(freq, np.ma.angle(spec1[i,b]), label='original')
                         ax.plot(freq, np.ma.angle(spec3[i,b]), linestyle='none', marker='.', label='unwrap')
                         ax.text(0.05, 0.90, 'med: %.2f'%np.ma.median(np.ma.angle(spec3[i,b])), transform=ax.transAxes)
-                        ax.set_xlabel('freq (MHz)')
-                        ax.set_ylabel('phase (rad)')
+                        ax.set_xlabel('Frequency (MHz)')
+                        ax.set_ylabel('Phase (rad)')
                         ax.legend(loc='upper right')
                 fig.savefig(png)
                 plt.close(fig)
@@ -443,8 +445,8 @@ for fvis in files:
                     s=ax.pcolormesh(X,Y,pp_spec.real[:,b,:].T,shading='auto', norm=colors.SymLogNorm(linthresh=1e3))
                 cb=plt.colorbar(s, ax=ax)
                 cb.set_label('linear')
-                ax.set_xlabel('time (sec)')
-                ax.set_ylabel('freq (MHz)')
+                ax.set_xlabel('Time (sec)')
+                ax.set_ylabel('Frequency (MHz)')
                 ax.set_title('Real')
                 # imag
                 ax = sub[0,1]
@@ -454,24 +456,24 @@ for fvis in files:
                     s=ax.pcolormesh(X,Y,pp_spec.imag[:,b,:].T,shading='auto', norm=colors.SymLogNorm(linthresh=1e3))
                 cb=plt.colorbar(s, ax=ax)
                 cb.set_label('linear')
-                ax.set_xlabel('time (sec)')
-                ax.set_ylabel('freq (MHz)')
+                ax.set_xlabel('Time (sec)')
+                ax.set_ylabel('Frequency (MHz)')
                 ax.set_title('Imag')
                 # amp
                 ax = sub[1,0]
                 s=ax.pcolormesh(X,Y,10*np.ma.log10(np.ma.abs(pp_spec[:,b,:])).T,shading='auto')
                 cb=plt.colorbar(s, ax=ax)
                 cb.set_label('10*log10(abs())')
-                ax.set_xlabel('time (sec)')
-                ax.set_ylabel('freq (MHz)')
+                ax.set_xlabel('Time (sec)')
+                ax.set_ylabel('Frequency (MHz)')
                 ax.set_title('Power')
                 # pha
                 ax = sub[1,1]
                 s=ax.pcolormesh(X,Y,np.ma.angle(pp_spec[:,b,:]).T,shading='auto')
                 cb=plt.colorbar(s, ax=ax)
-                cb.set_label('phase (rad)')
-                ax.set_xlabel('time (sec)')
-                ax.set_ylabel('freq (MHz)')
+                cb.set_label('Phase (rad)')
+                ax.set_xlabel('Time (sec)')
+                ax.set_ylabel('Frequency (MHz)')
                 ax.set_title('Phase')
 
                 fig.tight_layout(rect=[0,0.03,1,0.95])
@@ -490,7 +492,7 @@ for fvis in files:
                 ax = sub[ai,aj-1]
                 ax.plot(tWin, savClkOff[:,b], marker='.', linestyle=':')
                 ax.text(0.05, 0.90, 'min:%.2f max:%.2f'%(savClkOff[:,b].min(), savClkOff[:,b].max()), transform=ax.transAxes)
-                ax.set_xlabel('time (sec)')
+                ax.set_xlabel('Time (sec)')
                 ax.set_ylabel('clock off (sample)')
 
         if (nInp >= 3):
@@ -498,7 +500,7 @@ for fvis in files:
             ClkClosure = savClkOff[:,bsel[0]]+savClkOff[:,bsel[2]]-savClkOff[:,bsel[1]]
             axclo = fig.add_axes(rect=[0.08,0.06,0.33,0.33])
             axclo.plot(tWin, ClkClosure, marker='.', linestyle=':')
-            axclo.set_xlabel('time')
+            axclo.set_xlabel('Time')
             axclo.set_ylabel('closure off (sample)')
             axclo.set_title('closure: 01+12-02')
 
@@ -543,8 +545,8 @@ for fvis in files:
                     ax = s2d[ai,aj-1]
                     sub.append(ax)
                     if (ai == aj-1):
-                        ax.set_xlabel('freq (MHz)')
-                        ax.set_ylabel('phase (rad)')
+                        ax.set_xlabel('Frequency (MHz)')
+                        ax.set_ylabel('Phase (rad)')
                         ax.set_ylim(-3.5, 5.0)
 
             # results per window
@@ -696,8 +698,8 @@ for fvis in files:
             #faphase = np.ma.median(np.ma.angle(spec3), axis=1)
             ax.plot(tWin, np.ma.angle(fa_spec3[:,b]), marker='.', color='C0')
             #ax.errorbar(tWin, np.ma.angle(fa_spec3[:,b]), perr[:,b], marker='.', linestyle=':', color='C0')
-            ax.set_xlabel('time')
-            ax.set_ylabel('phase (rad)')
+            ax.set_xlabel('Time')
+            ax.set_ylabel('Phase (rad)')
             #mean_err = perr[:,b].mean()
             #rms_err = np.ma.angle(fa_spec3[:,b]).std()
             #print('%d%d:'%(ai,aj), 'RMS:%.3frad'%rms_err, '<err>:%.3frad'%mean_err)
@@ -717,8 +719,8 @@ for fvis in files:
         axclo.errorbar(sec, closurep1, yerr=closeperr, marker='.', linestyle=':', label='no-fit/closure/f_avg')
         axclo.text(0.05, 0.05, 'RMS:%.3frad'%closurep1.std(),transform=axclo.transAxes)
         #axclo.legend()
-        axclo.set_xlabel('time (sec)')
-        axclo.set_ylabel('closure phase (rad)')
+        axclo.set_xlabel('Time (sec)')
+        axclo.set_ylabel('Closure phase (rad)')
         axclo.set_title('closure: 01+12-02')
         #print(axclo.get_xticks(), axclo.get_xticklabels())
         #axclo.set_xticks(axclo.get_xticks(), rotation=30, ha='right')
@@ -750,7 +752,7 @@ for fvis in files:
         ax.grid(True, which='major', axis='x')
         ax.legend()
         ax.set_yscale('log')
-        ax.set_xlabel('freq (MHz)')
+        ax.set_xlabel('Frequency (MHz)')
         ax.set_ylabel('SEFD (Jy)')
         ax.set_title(suptitle)
         f3.tight_layout()
@@ -945,22 +947,22 @@ for fvis in files:
 
             ax = s1[1,0]
             ax.set_title('cross01')
-            ax.set_xlabel('freq (MHz)')
-            #ax.set_ylabel('vis.power (dBm)')
-            ax.set_ylabel('xcorr coeff')
+            ax.set_xlabel('Frequency (MHz)')
+            #ax.set_ylabel('Vis.Power (dBm)')
+            ax.set_ylabel('Xcorr coeff')
             ax.set_yscale('log')
             ax.set_ylim([2e-3, 2])
             ax = s1[1,1]
             ax.set_title('cross01')
-            ax.set_xlabel('freq (MHz)')
-            ax.set_ylabel('vis.phase (rad)')
+            ax.set_xlabel('Frequency (MHz)')
+            ax.set_ylabel('Vis. phase (rad)')
             ax.set_ylim([-3.2,3.2])
             #for j in range(2):
             for j,jj in enumerate([ai,aj]):
                 ax = s1[0,j]
                 ax.set_title('Ant%d'%jj)
-                ax.set_xlabel('freq (MHz)')
-                ax.set_ylabel('power (dBm)')
+                ax.set_xlabel('Frequency (MHz)')
+                ax.set_ylabel('Power (dBm)')
 
 
             for i in range(nWin):
@@ -994,7 +996,7 @@ for fvis in files:
                 ax.plot(sec, sigma_clip(cfs_coeff.real), 'b-', label='real')
             ax.plot(sec, sigma_clip(med_coeff), 'b:', label='abs')
             ax.legend()
-            ax.set_xlabel('window time (sec)')
+            ax.set_xlabel('Window time (sec)')
             ax.set_ylabel('med_coefficient')
             ax.text(0.05, 0.90, 'med:%.3g+/-%.3g'%(med_med_coeff, std_med_coeff), transform=ax.transAxes)
 
@@ -1004,7 +1006,7 @@ for fvis in files:
             if (do_model):
                 ax.plot(sec, modPhase2)
             ax.set_ylim([-3.2,3.2])
-            ax.set_xlabel('window time (sec)')
+            ax.set_xlabel('Window time (sec)')
             ax.set_ylabel('med_phase')
 
 
@@ -1066,8 +1068,8 @@ for fvis in files:
                 savPhiMed.append(medres)
             ax.legend()
             ax.set_ylim([-3.5, 4.5])
-            ax.set_xlabel('time')
-            ax.set_ylabel('resid.phase (rad)')
+            ax.set_xlabel('Time')
+            ax.set_ylabel('Resid. phase (rad)')
 
             # delay plot (convert to ns)
             ax = s2[1,0]
@@ -1083,7 +1085,7 @@ for fvis in files:
                 ax.scatter(tt, ns_diff, color='g', marker='*', label='data-model')
                 ax.scatter(tt[ns_cdiff.mask], ns_diff[ns_cdiff.mask], marker='*', color='r')
                 ax.fill_between(tt, np.ones(len(tt))*ns_cdiff.min(), np.ones(len(tt))*ns_cdiff.max(), color='b', alpha=0.2)
-                ax.text(0.05, 0.90, 'med_dtau: %.3f, std: %.3f ns'%(medns,stdns), transform=ax.transAxes)
+                ax.text(0.05, 0.90, 'median residual delay: %.3f ns (std dev: %.3f ns)'%(medns,stdns), transform=ax.transAxes)
                 ax.legend()
                 ax.set_ylim(-50, 50)
                 #ax.set_ylim(-100, 100)
@@ -1092,13 +1094,13 @@ for fvis in files:
                     savTauMod.append(ns_model)
                     savTauRes.append(ns_diff)
                     savTauMed.append(medns)
-            ax.set_xlabel('time')
-            ax.set_ylabel('src_delay (ns)')
+            ax.set_xlabel('Time')
+            ax.set_ylabel('Delay (ns)') # src_delay
                 
 
             # power plot
             ax = s2[0,1]
-            ax.set_xlabel('time')
+            ax.set_xlabel('Time')
             sel = 1
             if (sel==0):
                 if (do_model):
@@ -1130,8 +1132,8 @@ for fvis in files:
             ax = s2[1,1]
             if (do_model):
                 ax.plot(tt, el/np.pi*180, marker='.')
-            ax.set_xlabel('time')
-            ax.set_ylabel('elevation (deg)')
+            ax.set_xlabel('Time')
+            ax.set_ylabel('Elevation (deg)')
 
             f2.tight_layout(rect=[0,0.03,1,0.95])
             f2.suptitle(suptitle)
@@ -1151,23 +1153,25 @@ for fvis in files:
             # real
             ax = sub[0,0]
             ax.pcolormesh(T,Y,coeff.real.T)
-            ax.set_title('real')
-            ax.set_ylabel('freq (MHz)')
+            ax.set_title('Real')
+            ax.set_ylabel('Frequency (MHz)')
             # real
             ax = sub[0,1]
             ax.pcolormesh(T,Y,coeff.imag.T)
-            ax.set_title('imag')
+            ax.set_title('Imag')
             # ampld
             ax = sub[1,0]
             ax.pcolormesh(T,Y,np.ma.abs(coeff).T)
-            ax.set_title('abs')
-            ax.set_ylabel('freq (MHz)')
-            ax.set_xlabel('time')
+            ax.set_title('Abs')
+            ax.set_ylabel('Frequency (MHz)')
+            ax.set_xlabel('Time')
             # phase
             ax = sub[1,1]
             ax.pcolormesh(T,Y,np.ma.angle(coeff).T)
-            ax.set_title('phase')
-            ax.set_xlabel('time')
+            ax.set_title('Phase')
+            ax.set_xlabel('Time')
+
+            plot_util.set_style(fig)
 
             fig.tight_layout(rect=[0,0.03,1,0.95])
             fig.subplots_adjust(wspace=0)
@@ -1237,8 +1241,8 @@ for fvis in files:
                 axrt = fig.add_subplot(gs[1,1])
 
                 s = ax2D.pcolormesh(T,Y,Y2D.T, vmin=vmin, vmax=vmax)
-                ax2D.set_xlabel('time (UT)')
-                ax2D.set_ylabel('freq (MHz)')
+                ax2D.set_xlabel('Time (UT)')
+                ax2D.set_ylabel('Frequency (MHz)')
                 #cb = plt.colorbar(s, ax=ax2D)
                 #cb.set_label('Tsys (K)')
                 ax2D.axvline(tt1, linestyle='--', color='r')
@@ -1271,7 +1275,11 @@ for fvis in files:
                 elif (tp==1):
                     fig.text(0.76, 0.80, 'med(%s_freq.med) = %.3f MJy'%(yname, np.ma.median(y_freq)), color='C0')
                     fig.text(0.76, 0.75, 'med(%s_freq.min) = %.3f MJy'%(yname, np.ma.median(y_freq2)), color='C1')
-                    fig.text(0.76, 0.85, 'SEFD*(400/fMHz)^2')
+                    fig.text(0.76, 0.85, r'$\mathrm{SEFD} \cdot (400 MHz/f_{MHz})^2')
+
+
+                plot_util.set_style(fig)
+
                 fig.suptitle(suptitle)
                 fig.savefig(png4)
                 plt.close(fig)

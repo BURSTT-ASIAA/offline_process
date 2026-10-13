@@ -15,6 +15,8 @@ from loadh5 import *
 from pyplanet import *
 from delay_func2 import *
 
+import plot_util
+
 DB = loadDB()
 
 def atten(x, hwhm):
@@ -594,7 +596,7 @@ for ll in range(nLoop):
 
             for i in range(4):
                 s2d[i,0].set_ylabel('mSEFD (MJy)')
-                s2d[3,i].set_xlabel('freq (MHz)')
+                s2d[3,i].set_xlabel('Frequency (MHz)')
 
             fig.tight_layout()
             fig.subplots_adjust(wspace=0, hspace=0)
@@ -741,14 +743,14 @@ for ll in range(nLoop):
                     sub[0].plot(freq,savN3[ai],label='Ant%d'%physical_ai)
                     sub[2].plot(freq,np.ma.angle(LV3C[:,ai]),label='Ant%d'%physical_ai)
             sub[0].set_yscale('log')
-            sub[0].set_ylabel('voltage normalization')
+            sub[0].set_ylabel('Voltage normalization')
             sub[0].legend(ncols=4)
             for mode in range(nMode3):
                 if mode >= nFlag:
                     sub[1].plot(freq,sigma_clip(10.*np.log10(savW3[:,mode]),sigma=10))
-            sub[1].set_ylabel('power (dB)')
-            sub[2].set_ylabel('phase (rad)')
-            sub[2].set_xlabel('freq (MHz)')
+            sub[1].set_ylabel('Power (dB)')
+            sub[2].set_ylabel('Phase (rad)')
+            sub[2].set_xlabel('Frequency (MHz)')
             sub[2].set_xlim(flim[0],flim[1])
             fig.tight_layout(rect=[0,0.03,1,0.95])
             fig.suptitle('%s, row%02d'%(combine_timestamp,combine_rows[row]))
@@ -782,13 +784,13 @@ for ll in range(nLoop):
                 for panel in (ax,ax2,ax3):
                     panel.text(0.05,0.85,'Ant%03d'%physical_ai,transform=panel.transAxes)
                 if local_ant%4 == 0:
-                    ax.set_ylabel('phase (rad)')
-                    ax2.set_ylabel('power (dB)')
-                    ax3.set_ylabel('scaling')
+                    ax.set_ylabel('Phase (rad)')
+                    ax2.set_ylabel('Power (dB)')
+                    ax3.set_ylabel('Scaling')
                 if local_ant>=12:
-                    ax.set_xlabel('freq (MHz)')
-                    ax2.set_xlabel('freq (MHz)')
-                    ax3.set_xlabel('freq (MHz)')
+                    ax.set_xlabel('Frequency (MHz)')
+                    ax2.set_xlabel('Frequency (MHz)')
+                    ax3.set_xlabel('Frequency (MHz)')
             for figx,suffix,title in ((fig_phase,'phases','phases'),(fig_ampld,'ampld','amplitude'),(fig_weight,'weight','scaling')):
                 figx.tight_layout(rect=[0,0.03,1,0.95])
                 figx.subplots_adjust(wspace=0,hspace=0)
@@ -811,7 +813,7 @@ for ll in range(nLoop):
                 if local_ant%4 == 0:
                     ax.set_ylabel('mSEFD (MJy)')
                 if local_ant>=12:
-                    ax.set_xlabel('freq (MHz)')
+                    ax.set_xlabel('Frequency (MHz)')
             fig.tight_layout(rect=[0,0.03,1,0.95])
             fig.subplots_adjust(wspace=0,hspace=0)
             fig.suptitle('%s, row%02d, SEFD'%(combine_timestamp,combine_rows[row]))
@@ -845,6 +847,11 @@ for ll in range(nLoop):
 
     nCol = nAnt3//nAnt
 
+
+    # rainbow color map
+    antenna_colors = plot_util.get_beam_colors(nAnt3)
+
+
     ## plot normalization and eigenvalues
     fig, sub = plt.subplots(3,1,figsize=(15,15),sharex=True)
 
@@ -856,9 +863,9 @@ for ll in range(nLoop):
         norm = savN2
     for ai in range(nAnt3):
         if (not ai in ant_flag):
-            ax.plot(freq, norm[ai], label='Ant%d'%ai)
+            ax.plot(freq, norm[ai], label='Ant%d'%ai, color=antenna_colors[ai])
     ax.set_yscale('log')
-    ax.set_ylabel('voltage normalization')
+    ax.set_ylabel('Voltage normalization')
     #ax.legend(ncols=nCol)
     if (nAnt3<=64):
         ax.legend(ncols=nCol)
@@ -871,8 +878,8 @@ for ll in range(nLoop):
         y = savW3[:,ai]
         y2 = sigma_clip(10.*np.log10(y), sigma=10)
         #ax.plot(freq, 10.*np.log10(y), label='Mode%d'%ai)
-        ax.plot(freq, y2, label='Mode%d'%ai)
-    ax.set_ylabel('power (dB)')
+        ax.plot(freq, y2, label='Mode%d'%ai, color=antenna_colors[ai])
+    ax.set_ylabel('Power (dB)')
     ax.set_ylim(-15, 25)
     if (nAnt3<=64):
         ax.legend(ncols=nCol)
@@ -883,12 +890,12 @@ for ll in range(nLoop):
         if (ai in ant_flag):
             continue
         y = savV3[:,ai,-1]
-        ax.plot(freq, np.ma.angle(y), label='Ant%d'%ai)
-    ax.set_ylabel('phase (rad)')
+        ax.plot(freq, np.ma.angle(y), label='Ant%02d'%ai, color=antenna_colors[ai])
+    ax.set_ylabel('Phase (rad)')
     #ax.legend(ncols=nCol)
     if (nAnt3<=64):
         ax.legend(ncols=nCol)
-    ax.set_xlabel('freq (MHz)')
+    ax.set_xlabel('Frequency (MHz)')
     ax.set_xlim(flim[0], flim[1])
     if (nAnt3<=64):
         ax.set_xlim(flim[0], flim[1]*1.1)
@@ -896,6 +903,9 @@ for ll in range(nLoop):
     fig.tight_layout(rect=[0,0.03,1,0.95])
     fig.suptitle(fout)
     #fig.savefig('%s.png'%fout)
+
+    plot_util.set_style(fig)
+
     fig.savefig('%s/%s.png'%(cdir, fout))
     plt.close(fig)
 
@@ -1010,13 +1020,13 @@ for ll in range(nLoop):
                 ax3.legend()
 
             if (jj==0):
-                ax.set_ylabel('phase (rad)')
-                ax2.set_ylabel('power (dB)')
+                ax.set_ylabel('Phase (rad)')
+                ax2.set_ylabel('Power (dB)')
                 ax3.set_ylabel('scaling')
             if (ii==ny-1):
-                ax.set_xlabel('freq (MHz')
-                ax2.set_xlabel('freq (MHz')
-                ax3.set_xlabel('freq (MHz')
+                ax.set_xlabel('Frequency (MHz)')
+                ax2.set_xlabel('Frequency (MHz)')
+                ax3.set_xlabel('Frequency (MHz)')
 
     fig.tight_layout(rect=[0,0.03,1,0.95])
     fig.subplots_adjust(wspace=0, hspace=0)

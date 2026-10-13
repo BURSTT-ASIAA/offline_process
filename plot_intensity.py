@@ -215,9 +215,9 @@ for idir in dirs:
         sub = s2d[0::2,:].flatten()
         sub2 = s2d[1::2,:].flatten()
         for ii in range(4):
-            s2d[ii*2,0].set_ylabel('freq (MHz)')
+            s2d[ii*2,0].set_ylabel('Frequency (MHz))')
             s2d[ii*2+1,0].set_ylabel('amp')
-            s2d[7,ii].set_xlabel('time (sec)')
+            s2d[7,ii].set_xlabel('Time (sec)')
 
         for ai in range(nAnt):
             ax = sub[ai]

@@ -257,7 +257,7 @@ for fvis in files:
                 ax.set_ylim(zmin, zmax)
                 ax.grid()
             ax.set_title('Ant%d'%ai)
-            ax.set_xlabel('time (sec)')
+            ax.set_xlabel('Time (sec)')
             ax.set_ylabel(ylab)
 
         # baseline data and residual
@@ -320,7 +320,7 @@ for fvis in files:
                 if (ai%4==0):
                     ax.set_ylabel('tau (ns)')
                 if (ai>=12):
-                    ax.set_xlabel('time (sec)')
+                    ax.set_xlabel('Time (sec)')
             fig.tight_layout(rect=[0,0.03,1,0.95])
             fig.subplots_adjust(hspace=0)
             fig.suptitle('ant instrument Tau, %s'%odir)
@@ -374,11 +374,11 @@ for fvis in files:
             M_freq_med = 10**(np.ma.median(M_freq[ai,chlim[0]:chlim[1]]))
             ax.set_title('Ant%02d, %.0fK'%(ai,M_freq_med))
             if (ai%4==0):
-                ax.set_ylabel('freq (MHz)')
+                ax.set_ylabel('Frequency (MHz)')
             else:
                 ax.set_yticks([])
             if (ai>=12):
-                ax.set_xlabel('time (sec)')
+                ax.set_xlabel('Time (sec)')
                 ax2.set_xlabel('Tsys (K)')
             else:
                 ax.set_xticks([])
@@ -447,11 +447,11 @@ for fvis in files:
             M_freq_med = np.ma.median(M_freq[ai,chlim[0]:chlim[1]])
             ax.set_title('Ant%02d, %.3fMJy'%(ai,M_freq_med))
             if (ai%4==0):
-                ax.set_ylabel('freq (MHz)')
+                ax.set_ylabel('Frequency (MHz)')
             else:
                 ax.set_yticks([])
             if (ai>=12):
-                ax.set_xlabel('time (sec)')
+                ax.set_xlabel('Time (sec)')
                 ax2.set_xlabel('SEFD (MJy)')
             else:
                 ax.set_xticks([])

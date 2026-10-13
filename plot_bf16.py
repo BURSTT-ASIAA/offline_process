@@ -15,6 +15,7 @@ import matplotlib.dates as mdates
 
 # Import modularized masking utilities
 import masking_util as mu
+import plot_util
 
 inp = sys.argv[0:]
 pg  = inp.pop(0)
@@ -443,7 +444,13 @@ for kk in range(nDir):
                 freq_mask=freq_mask, time_mask=time_mask, 
                 vmin=(zlim[0] if zlim else None), vmax=(zlim[1] if zlim else None)
             )
-          
+
+
+            # share axis
+            ax.sharey(sub[0])
+            ax.set_ylabel('Frequency (MHz)')
+            ax.label_outer()    # only show labels on edges
+            
             #Calculate profile using the masked data
             # average over freq, each node separately
 
@@ -452,8 +459,14 @@ for kk in range(nDir):
             #IntensityProfile = np.ma.median(NormalizedIntensityArray[:,:,row_idx,ant_idx], axis=1)
 
             ax2 = sub2[b] #sub2[nRow-1-row_idx, ant_idx]
+            ax2.sharey(sub2[0])
             ax2.plot(WindowDateTime, IntensityProfile)
             ax2.set_ylim(vmin, vmax)
+            ax2.set_xlabel('Time')
+            ax2.set_ylabel('SNR')
+
+            ax2.label_outer()    # only show labels on edges
+
 
             # HIGHLIGHT: Add gray shaded vertical bands for masked time regions
             if np.any(time_mask):
@@ -474,6 +487,8 @@ for kk in range(nDir):
 
 
 mask_str = freq_mask_str + time_mask_str
+
+plot_util.set_style(fig)
 
 fig.autofmt_xdate()
 fig.tight_layout(rect=[0,0.03,1,0.95])
@@ -496,7 +511,7 @@ fig_prof,ax_prof = plt.subplots(1,1,figsize=(12,4))
 
 
 # Get all beam colors in a single call (using nAnt since nBeam=nAnt in this case); Get color and darken it by scaling RGB components (alpha remains 1)
-beam_colors = mu.get_beam_colors(nAnt)
+beam_colors = plot_util.get_beam_colors(nAnt)
 
 base_cmap = plt.get_cmap('gist_rainbow') 
 for kk in range(nDir):
@@ -514,8 +529,8 @@ for kk in range(nDir):
             mu.label_curve_at_peak(ax_prof, curve)
 
 
-ax_prof.set_xlabel('time (UTC%+d)'%time_zone_hr)
-ax_prof.set_ylabel('normalized intensity')
+ax_prof.set_xlabel('Time (UTC%+d)'%time_zone_hr)
+ax_prof.set_ylabel('Normalized intensity')
 #ax_prof.legend()  # use text label instead
 
 ax_prof.xaxis.set_minor_locator(mdates.MinuteLocator(byminute=np.arange(0,60,5)))
@@ -533,6 +548,7 @@ ax_prof.tick_params(which='major', length=8, labelsize=9)
 # Adjust rotation for better readability
 plt.setp(ax_prof.get_xticklabels(), rotation=15, ha="right")
 
+plot_util.set_style(fig_prof)
 
 fig_prof.autofmt_xdate()
 fig_prof.tight_layout(rect=[0,0.03,1,0.95])
@@ -550,9 +566,9 @@ for row_idx in range(nRow):
     sub = s2d[0::2,:].flatten()
     sub2 = s2d[1::2,:].flatten()
     for ii in range(4):
-        s2d[ii*2,0].set_ylabel('freq (MHz)')
+        s2d[ii*2,0].set_ylabel('Frequency (MHz)')
         s2d[ii*2+1,0].set_ylabel('amp')
-        s2d[7,ii].set_xlabel('time (sec)')
+        s2d[7,ii].set_xlabel('Time (sec)')
 
     for kk in range(nDir):
         IntensityArray = arrInts[kk]

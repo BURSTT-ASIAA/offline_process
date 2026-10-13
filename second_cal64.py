@@ -320,8 +320,8 @@ for ai in range(nFPGA-1):
         ax.grid()
         
         if (ii==jj):
-            ax.set_ylabel('phase (rad)')
-            ax.set_xlabel('freq (MHz)')
+            ax.set_ylabel('Phase (rad)')
+            ax.set_xlabel('Frequency (MHz)')
         
 fig.tight_layout()
 fig.subplots_adjust(wspace=0, hspace=0)
@@ -348,7 +348,7 @@ for ai in range(nFPGA-1):
         
         if (ii==jj):
             ax.set_ylabel('abs(coeff)')
-            ax.set_xlabel('freq (MHz)')
+            ax.set_xlabel('Frequency (MHz)')
         
 fig.tight_layout()
 fig.subplots_adjust(wspace=0, hspace=0)
@@ -400,7 +400,7 @@ for ai in range(nFPGA-1):
         
         if (ii==jj):
             ax.set_ylabel('SEFD (Jy)')
-            ax.set_xlabel('freq (MHz)')
+            ax.set_xlabel('Frequency (MHz)')
         
 fig.tight_layout()
 fig.subplots_adjust(wspace=0, hspace=0)
@@ -452,7 +452,7 @@ for ai in range(nFPGA):
 
 for i in range(2):
     s2d[i,0].set_ylabel('mSEFD (MJy)')
-    s2d[1,i].set_xlabel('freq (MHz)')
+    s2d[1,i].set_xlabel('Frequency (MHz)')
 
 fig.tight_layout()
 fig.subplots_adjust(wspace=0, hspace=0)
@@ -487,7 +487,7 @@ for ai in range(nFPGA-1):
         
         if (ii==jj):
             ax.set_ylabel('Tsys (K)')
-            ax.set_xlabel('freq (MHz)')
+            ax.set_xlabel('Frequency (MHz)')
         
 fig.tight_layout()
 fig.subplots_adjust(wspace=0, hspace=0)
@@ -503,7 +503,7 @@ fig, ax = plt.subplots(1,1,figsize=(10,6), sharex=True, sharey=True)
 for i in range(nFPGA):
     ax.plot(fMHz, 10*np.log10(W1[:,i]))
 
-ax.set_xlabel('freq (MHz)')
+ax.set_xlabel('Frequency (MHz)')
 ax.set_ylabel('W (dB)')
 
 fig.savefig('%s/eigenvalue.png'%cdir)
@@ -597,7 +597,7 @@ for i in range(nFPGA):
     if (i == 0):
         ax.legend()
     if (i>=2):
-        ax.set_xlabel('freq (MHz)')
+        ax.set_xlabel('Frequency (MHz)')
     if (i%4==0):
         ax.set_ylabel('rel.strength')
     ax.set_ylim(0, 2)
@@ -654,8 +654,8 @@ for i in range(nFPGA):
         ax.legend()
 
 for i in range(2):
-    s2d[i,0].set_ylabel('phase (rad)')
-    s2d[1,i].set_xlabel('freq (MHz)')
+    s2d[i,0].set_ylabel('Phase (rad)')
+    s2d[1,i].set_xlabel('Frequency (MHz)')
 
 fig.tight_layout(rect=[0,0.03,1,0.95])
 png = '%s/ant_phase_correct.png'%cdir
