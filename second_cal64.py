@@ -42,9 +42,6 @@ pad  = 32   # fft padding factor; for dividing the lag sample to finer resolutio
 
 site = 'longtien'
 src  = 'sun'
-cdir_path = '/burstt5/disk1/2nd_cal'
-if (not os.path.isdir(cdir_path)):
-    cdir_path = '.'
 make_copy = True
 
 sep  = 2.0          # row spacing in meters
@@ -198,6 +195,13 @@ if (site == 'fushan6'):
 elif (site == 'longtien'):
     theta_rot_deg = 0.5
     sep = 2.0
+
+if (site == 'longtien' or site.lower()=='ltn'):
+    cdir_path = '/burstt5/disk1/2nd_cal'
+elif (site == 'lyudao' or site.lower()=='grn'):
+    cdir_path = '/burstt6/disk8/2nd_cal'
+if (not os.path.isdir(cdir_path)):
+    cdir_path = '.'
 
 ## added (2026-03-26, Sujin)
 if fmin == 400:
