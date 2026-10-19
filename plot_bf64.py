@@ -125,7 +125,7 @@ for j in range(nDir):
 
     adoneh5(ofile, freq, 'freq')
 
-    files   = glob('%s/intensity_%s_*'%(idir,ring_name))
+    files   = glob('%s/intensity_*%s_*'%(idir,ring_name))
     files.sort()
     nFile   = len(files)
     if (False):

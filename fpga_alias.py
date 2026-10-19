@@ -32,7 +32,7 @@ fpga_alias = {
     '192.168.40.248':'FUS_row12',
     '192.168.40.116':'FUS_row13',   # was 111
     '192.168.40.108':'FUS_row14',
-    #'192.168.40.109':'FUS_row15',  # replaced as of 260321
+    #'192.168.40.109':'FUS_row15',   # replaced as of 260321
     '192.168.40.121':'FUS_row15',
     #'192.168.40.104':'FUS_row16',  # removed as of 260321
     '192.168.40.251':'FUS_row17',
@@ -43,14 +43,14 @@ fpga_alias = {
     #'192.168.40.115':'LUD_row01',
     #'192.168.40.114':'LUD_row02',
     #'192.168.40.118':'LUD_row01',
-    '192.168.40.106':'LUD_row01',   # replaced 2026-05-14
-    '192.168.40.119':'LUD_row02',
-    #'192.168.40.106':'LUD_row03',  # replaced 260409
-    '192.168.40.104':'LUD_row03',   # replaced 260409
-    '192.168.40.113':'LUD_row04',   # replaced 260408, back260409
-    #'192.168.40.104':'LUD_row04',  # replaced 260408 for testing
-    '192.168.40.122':'PYC_row01',   #SH: 2026-03-15
-    '192.168.40.125':'KMN_row01',   #SH: 2026-03-15
+    '192.168.40.106':'GRN_row01',   # replaced 260514
+    '192.168.40.119':'GRN_row02',
+    #'192.168.40.106':'GRN_row03',  # replaced 260409
+    '192.168.40.104':'GRN_row03',   # replaced 260409
+    '192.168.40.113':'GRN_row04',  # replaced 260408, back260409
+    #'192.168.40.104':'LUD_row04',   # replaced 260408 for testing
+    '192.168.40.122':'PYC_row01', #SH: 2026-03-15
+    '192.168.40.125':'KMN_row01', #SH: 2026-03-15
     '192.168.40.123':'LAN_row01'    # Lanyang, burstt2
 }
 
@@ -66,6 +66,8 @@ for k in fpga_alias.keys():
 
     f = k.split('.')[-1]
     fpga_id[v] = f
+
+site_ips['LUD'] = site_ips['GRN']
 #print(site_ips)
 #print(fpga_id)
 

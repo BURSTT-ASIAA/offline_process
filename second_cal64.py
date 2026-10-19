@@ -103,8 +103,8 @@ options are:
     --hwhm EW NS # enter the EW and NS hphm beam width in deg
                 # default: %.1f %.1f
     --copy DIR  # change the copying destination for 2nd_cal results
-                # default: %s
-''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610, G0, EW_hwhm, NS_hwhm, cdir_path)
+                # default: site-dependent
+''' % (pg, nFrame, sep, theta_rot_deg, site, src, f410, f610, G0, EW_hwhm, NS_hwhm)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -190,16 +190,18 @@ cdir = 'cal_%s.check'%(stamp_name,)
 call('mkdir -p %s'%cdir, shell=True)
 
 
-if (site == 'fushan6'):
-    theta_rot_deg = -3.0
-elif (site == 'longtien'):
-    theta_rot_deg = 0.5
-    sep = 2.0
-
 if (site == 'longtien' or site.lower()=='ltn'):
     cdir_path = '/burstt5/disk1/2nd_cal'
+    theta_rot_deg = 0.5
+    sep = 2.0
 elif (site == 'lyudao' or site.lower()=='grn'):
     cdir_path = '/burstt6/disk8/2nd_cal'
+    sep = 1.0
+    theta_rot_deg = 0.0
+elif (site == 'fushan6' or site.lower()=='fus'):
+    cdir_path = '/burstt12/disk12/2nd_cal'
+    theta_rot_deg = -3.0
+
 if (not os.path.isdir(cdir_path)):
     cdir_path = '.'
 
@@ -439,9 +441,9 @@ R = BM - D              # residual, shape: (nBl, nChan)
 amSEFD1 = 10**(M)       # linear modified SEFD per ant, shape: (nAnt, nChan)
 med_SEFD = np.median(amSEFD1, axis=0, keepdims=True) # median between antennas
 del_SEFD = amSEFD1/med_SEFD
-wt_SEFD = 1./np.median(del_SEFD, axis=1) # weighting based on relative SEFD
+wt_SEFD = 1./np.median(del_SEFD[:,chlim[0]:chlim[1]], axis=1) # weighting based on relative SEFD
 print('wt_SEFD:', wt_SEFD)
-med_aSEFD = np.median(amSEFD1, axis=1)
+med_aSEFD = np.median(amSEFD1[:,chlim[0]:chlim[1]], axis=1)
 
 fig, s2d = plt.subplots(2,2,figsize=(12,8), sharex=True, sharey=True)
 sub = s2d.flatten()
