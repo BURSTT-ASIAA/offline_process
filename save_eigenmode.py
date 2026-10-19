@@ -227,17 +227,18 @@ if (site == 'fushan6' ): # or site == 'FUS'):
     if (theta_rot is None):
         theta_rot = -3.0    # sujin's number
         #theta_rot = -1.8    # old number
-elif (site == 'longtien' ): #or site == 'LTN'):
+elif (site == 'longtien' or site.lower()=='ltn'): #or site == 'LTN'):
     if (arr_config == '16x1.0y0.5'):    # the default
         arr_config = '16x1.0y2.0'
         if (theta_rot is None):
             theta_rot = 0.5
-elif (site == 'lyudao'): # or site == 'GRN'):
+elif (site == 'lyudao' or site.lower()=='grn'): # or site == 'GRN'):
     if (arr_config == '16x1.0y0.5'):    # the default
         arr_config = '16x1.0y1.0'
         if (theta_rot is None):
             #theta_rot = +1.7   #based on photogrametry
             theta_rot = 0.0   # new IAA LPDA, 20260630
+
 if (theta_rot is None):
     theta_rot = 0.
 print('using theta_rot:', theta_rot)
@@ -309,8 +310,10 @@ for ll in range(nLoop):
 
     tag = '/'.join(os.path.abspath(cdir).split('/')[-2:])
 
-
-    pos = arrayConf(arr_config, nFile, rows=rows, theta_rot=theta_rot)
+    if (os.path.isfile(arr_config)):
+        pos = arrayConf(arr_config)
+    else:
+        pos = arrayConf(arr_config, nFile, rows=rows, theta_rot=theta_rot)
     #print('debug:', 'pos.shape=',pos.shape, pos)
     if combine:
         if aref is None:

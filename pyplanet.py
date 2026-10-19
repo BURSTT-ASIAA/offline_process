@@ -363,7 +363,7 @@ def tauBaseline(RA_rad, DEC_rad, BLvec, t_arr, t0=None):
     return tauGeo
 
 
-def arrayConf(arr_config, nRow, rows=None, theta_rot=0.):
+def arrayConf(arr_config, nRow=None, rows=None, theta_rot=0.):
     '''
     specify an antenna config or a file listing the antenna positions
     and the number of 'rows' to return
@@ -396,6 +396,7 @@ def arrayConf(arr_config, nRow, rows=None, theta_rot=0.):
     else:
         if (os.path.isfile(arr_config)):
             pos = np.loadtxt(arr_config, usecols=(1,2,3))
+            nRow = len(pos)
         else:
             print('error opening aconf file: %s'%arr_config)
             return None
