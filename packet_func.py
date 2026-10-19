@@ -191,8 +191,9 @@ def formSpec2(data0, bpp=8192, nAnt=16, nFPGA=16, grp=2, nChan=128, nStack=4, bi
     nChunk = nPack//nFPGA
     nFrame = nChunk * nStack
     nGrp = nChan//grp
-    #print('in formSpec2: bpp=', bpp, 'nAnt=', nAnt, 'nChan=',nChan, 'nStack=',nStack)
-    #print('in formSpec2: nFPGA=',nFPGA,'nFrame=',nFrame)
+    if (verbose):
+        print('in formSpec2: bpp=', bpp, 'nAnt=', nAnt, 'nChan=',nChan, 'nStack=',nStack)
+        print('in formSpec2: nFPGA=',nFPGA,'nFrame=',nFrame)
 
     #antSpec = np.ma.array(np.zeros((nFPGA,nFrame,nAnt,nChan), dtype=np.complex64), mask=False)
     tmp = data0.reshape((nChunk,nFPGA,bpp)).reshape((nChunk,nFPGA,nStack,nGrp,nAnt,grp))
@@ -201,7 +202,7 @@ def formSpec2(data0, bpp=8192, nAnt=16, nFPGA=16, grp=2, nChan=128, nStack=4, bi
 
     tmp2 = np.tile(bitmap.reshape((1,nChunk,nFPGA)), (nStack,1,1))
     #print(tmp2.shape)
-    antSpec.mask = ~tmp2.transpose((2,1,0)).reshape((nFPGA,nFrame))
+    antSpec.mask = ~tmp2.transpose((2,1,0)).reshape((nFPGA,nFrame,1,1))
     #print(antSpec)
 
     return antSpec
@@ -427,7 +428,7 @@ def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdl
     data0, clock0, order0 = loadBatch(fh, pack0, npack, bpp, order_off=order_off, hdlen=hdlen, bitwidth=bitwidth, hdver=hdver, meta=meta, unswap=unswap)
     #print('debug:', data0.shape)
     #print('debug:', data0[2])
-    antSpec = formSpec2(data0, bpp=bpp, nAnt=nAnt, nFPGA=nFPGA, nChan=nChan, nStack=nStack, bitmap=bitmap)
+    antSpec = formSpec2(data0, bpp=bpp, nAnt=nAnt, nFPGA=nFPGA, nChan=nChan, nStack=nStack, bitmap=bitmap, verbose=verbose)
 
     #data1 = data0.reshape((-1,nFPGA,bpp))
     #clock1 = clock0.reshape((-1,nFPGA))
