@@ -177,7 +177,8 @@ if (arr_config == '16x1.0y0.5'):
     pos = arrayConf(arr_config, nFPGA, theta_rot=theta_rot)
 else:
     if (os.path.isfile(arr_config)):
-        pos = np.loadtxt(arr_config)
+        #pos = np.loadtxt(arr_config)
+        pos = arrayConf(arr_config)
     else:
         sys.exit('unknown array config file: %s'%arr_config)
 
