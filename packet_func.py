@@ -388,7 +388,7 @@ def loadSpec(fh, pack0, npack, bpp=8192, ppf=2, order_off=0, nAnt=16, grp=2, hdl
     return data_tick, antSpec
 
 
-def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=2, meta=64, nFPGA=4, no_bitmap=False, get_order=False, unswap=False, isbf32=False):
+def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdlen=64, bitmap=None, nBlock=0, verbose=0, bitwidth=4, hdver=2, meta=64, nFPGA=4, no_bitmap=False, get_order=False, unswap=False, isbf32=False, MSB=False):
     '''
     load the ring buffer file of one node
 
@@ -412,6 +412,7 @@ def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdl
         bpp = 3840
         nStack = 2
         mdict = metaRead(fh, useRBH2=True)
+        MSB = True
     else:
         mdict = metaRead(fh)
 
@@ -442,6 +443,9 @@ def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdl
     #return np.array(antSpec)    # shape = (nFPGA, nFrame, nAnt, nChan)
 
     out_order = np.median(order0.flatten()).astype(int)
+
+    if (MSB):
+        antSpec += 0.5
 
     if (get_order):
         return antSpec, out_order
