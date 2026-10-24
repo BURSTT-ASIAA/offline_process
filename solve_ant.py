@@ -4,6 +4,7 @@ from loadh5 import *
 from util_func import *
 from delay_func2 import *
 from numpy.linalg import pinv
+import matplotlib.colors as colors
 import sys, os.path
 
 inp = sys.argv[0:]
@@ -20,6 +21,31 @@ nAnt    = 16
 gdiff   = np.zeros(nAnt)
 aref    = 0
 chlim   = None
+
+
+def solve_masked(B, D):
+    '''
+    weighted least-squares solution of B . X = D, ignoring masked or non-finite D
+    (equivalent to pinv(B) . D when nothing is masked)
+    B:  shape (nBl, nAnt)
+    D:  masked array, shape (nBl, ...)
+    return X, masked array of shape (nAnt, ...)
+    an antenna is masked where fewer than 2 of its baselines are valid
+    '''
+    sh = D.shape
+    D2 = D.reshape((sh[0], -1))
+    d = np.ma.getdata(D2)
+    w = (~np.ma.getmaskarray(D2) & np.isfinite(d)).astype(float)   # (nBl, K)
+    w[np.all(B==0, axis=1)] = 0.        # flagged baselines
+    d = np.where(w>0, d, 0.)
+    nb, na = B.shape
+    BB = (B[:,:,np.newaxis]*B[:,np.newaxis,:]).reshape((nb, -1))
+    N = np.dot(w.T, BB).reshape((-1, na, na))   # (K, nAnt, nAnt)
+    rhs = np.dot((w*d).T, B)                    # (K, nAnt)
+    X = np.einsum('kij,kj->ik', np.linalg.pinv(N), rhs)
+    nvalid = np.dot((B!=0).astype(float).T, w)  # (nAnt, K)
+    X = np.ma.array(X, mask=nvalid<2)
+    return X.reshape((na,)+sh[1:])
 
 
 usage = '''
@@ -52,6 +78,9 @@ options are:
                         # if multiple antennas are different, use --gdiff multiple times
     --aref ANT          # select reference antenna for Tau and Phi solutions
     --chlim MIN MAX     # set channel range for SEFD and Tsys average
+
+    if the fringe-stopped results (winTsys_fs, winTsys2D_fs, winSEFD2D_fs, winCoeffRFI)
+    from show_fpga_window.py exist, they are also solved and saved with the '_fs' suffix
 
 ''' % (pg, zmin, zmax, z2min, z2max)
 
@@ -125,6 +154,11 @@ for fvis in files:
     if (tmp is not None):
         winSEFD2D = tmp
         do_SEFD2D = True
+    # fringe-stopped results (optional)
+    winTsys_fs   = getData(fvis, 'winTsys_fs')      # shape (nWin, nBl)
+    winTsys2D_fs = getData(fvis, 'winTsys2D_fs')    # shape (nWin, nBl, nChan)
+    winSEFD2D_fs = getData(fvis, 'winSEFD2D_fs')    # shape (nWin, nBl, nChan)
+    do_fs = winTsys_fs is not None
 
     #if (True):  # make Tsys correction in this script
     if (False):  # Tsys correction already made in show_fpag_vis.py
@@ -141,7 +175,11 @@ for fvis in files:
     winTAU = winTAU[tsel]
     winPHI = winPHI[tsel]
     winTsys = winTsys[tsel]
-    nWin, nBl, nChan = winTsys2D.shape 
+    if (do_fs):
+        winTsys_fs = winTsys_fs[tsel]
+        winTsys2D_fs = winTsys2D_fs[tsel]
+        winSEFD2D_fs = winSEFD2D_fs[tsel]
+    nWin, nBl, nChan = winTsys2D.shape
 
 
     # solve X for equation: A . X = D   (Tau and Phi)
@@ -164,6 +202,10 @@ for fvis in files:
                     winTsys2D[:,b] *= 0.
                 if (do_SEFD2D):
                     winSEFD2D[:,b] *= 0.
+                if (do_fs):
+                    winTsys_fs[:,b] = 0.
+                    winTsys2D_fs[:,b] *= 0.
+                    winSEFD2D_fs[:,b] *= 0.
             else:
                 A[b,ai] = 1.
                 A[b,aj] = -1.
@@ -187,7 +229,8 @@ for fvis in files:
     ww = w0 * nAnt
     hh = h0 * nAnt
 
-    for pp in range(3):
+    nPP = 4 if do_fs else 3
+    for pp in range(nPP):
         if (pp == 0):   # TAU
             D = winTAU.T  # shape (nBl, nWin)
             name = 'Tau'
@@ -197,18 +240,22 @@ for fvis in files:
             name = 'Phi'
             ylab = 'res.Phi (rad)'
         elif (pp == 2):
-            D = np.log10(winTsys).T
+            D = np.ma.log10(winTsys).T
             name = 'Tsys'
             #ylab = 'log10(Tsys/K)'
             ylab = 'Tsys (K)'
+        elif (pp == 3):
+            D = np.ma.log10(winTsys_fs).T
+            name = 'Tsys_fs'
+            ylab = 'Tsys (K), fringe-stop'
 
         if (pp < 2):
             M = np.dot(Ainv, D)  # shape (nAnt, nWin)
             M -= M[aref,:]   # Ant0 as reference Tau
             R = np.dot(A, M) - D
         else:
-            M = np.dot(Binv, D)  # shape (nAnt, nWin)
-            BM = np.dot(B, M)
+            M = solve_masked(B, D)  # shape (nAnt, nWin)
+            BM = np.ma.dot(B, M)
             R = BM - D
         if (pp == 1):
             R = pwrap2(R)
@@ -243,10 +290,11 @@ for fvis in files:
             else:               # Tsys
                 ax.plot(winSec, 10.**M[ai], 'r-')
                 ax.fill_between(winSec, 10.**(M[ai]-std), 10.**(M[ai]+std), color='r', alpha=0.3)
-                medM = np.median(M[ai])
+                # nan if the antenna is fully masked (e.g. flagged)
+                medM = float(np.ma.filled(np.ma.median(M[ai]), np.nan))
                 #print('ai', ai, 'std', std, 'M', M[ai])
-                wtaM = np.ma.sum(M[ai]/std**2)/np.ma.sum(1./std**2)
-                minM = M[ai].min()
+                wtaM = float(np.ma.filled(np.ma.sum(M[ai]/std**2)/np.ma.sum(1./std**2), np.nan))
+                minM = float(np.ma.filled(M[ai].min(), np.nan))
                 savM_med.append(10**medM)
                 savM_wta.append(10**wtaM)
                 savM_min.append(10**minM)
@@ -275,7 +323,7 @@ for fvis in files:
                 else:           # Tsys
                     ax.plot(winSec, 10.**(D[b]))
                     ax.plot(winSec, 10.**(BM[b]))
-                    medD = np.median(D[b])
+                    medD = np.ma.median(D[b])
                     minD = D[b].min()
                     ax.text(0.05, 0.90, 'med: %.0fK'%(10**medD), transform=ax.transAxes)
                     ax.text(0.05, 0.85, 'min: %.0fK'%(10**minD), transform=ax.transAxes)
@@ -328,8 +376,13 @@ for fvis in files:
             plt.close(fig)
 
 
+    Tsys2D_list = []
     if (do_Tsys2D):
-        print('solve Tsys2D ...')
+        Tsys2D_list.append(('', winTsys2D))
+    if (do_fs):
+        Tsys2D_list.append(('_fs', winTsys2D_fs))
+    for sfx, Y2D in Tsys2D_list:
+        print('solve Tsys2D%s ...'%sfx)
         freq = getData(fvis, 'freq')    # MHz, nChan
         sec  = getData(fvis, 'winSec')  # sec, nWin
         sec = sec[tsel]
@@ -337,8 +390,8 @@ for fvis in files:
         print(T.shape,F.shape)
         print(sec.shape, freq.shape)
 
-        D = np.log10(winTsys2D).transpose((1,2,0))  # new shape (nBl, nChan, nWin)
-        M = np.tensordot(Binv, D, axes=(1,0))       # output shape (nAnt, nChan, nWin)
+        D = np.ma.log10(Y2D).transpose((1,2,0))     # new shape (nBl, nChan, nWin)
+        M = solve_masked(B, D)                      # output shape (nAnt, nChan, nWin)
         print(gdiff.shape, gdiff)
         M += (gdiff/10.).reshape((-1,1,1))          # Tsys is proportional to gain (linear)
                                                     # M(Tsys) is in log10 scale,
@@ -351,7 +404,7 @@ for fvis in files:
         print(M.shape)
 
         Mout = M.transpose((2,0,1))
-        adoneh5(fvis, Mout, 'antTsys2D')            # log10(Tsys2D), shape: (nWin, nAnt, nChan)
+        adoneh5(fvis, Mout, 'antTsys2D%s'%sfx)      # log10(Tsys2D), shape: (nWin, nAnt, nChan)
 
         #fig, sub = plt.subplots(4,4,figsize=(16,12),sharex=True,sharey=True)
         fig = plt.figure(figsize=(16,12))
@@ -398,13 +451,18 @@ for fvis in files:
             ax2.set_yticklabels([])
             ax2.grid()
 
-        fig.suptitle('%s, Tsys2D, antenna solution'%fvis)
-        fig.savefig('%s/antenna_Tsys2D.png'%odir)
+        fig.suptitle('%s, Tsys2D%s, antenna solution'%(fvis, sfx))
+        fig.savefig('%s/antenna_Tsys2D%s.png'%(odir, sfx))
         plt.close(fig)
 
 
+    SEFD2D_list = []
     if (do_SEFD2D):
-        print('solve SEFD2D ...')
+        SEFD2D_list.append(('', winSEFD2D))
+    if (do_fs):
+        SEFD2D_list.append(('_fs', winSEFD2D_fs))
+    for sfx, Y2D in SEFD2D_list:
+        print('solve SEFD2D%s ...'%sfx)
         freq = getData(fvis, 'freq')    # MHz, nChan
         sec  = getData(fvis, 'winSec')  # sec, nWin
         sec = sec[tsel]
@@ -412,8 +470,8 @@ for fvis in files:
         print(T.shape,F.shape)
         print(sec.shape, freq.shape)
 
-        D = np.log10(winSEFD2D).transpose((1,2,0))  # new shape (nBl, nChan, nWin)
-        lM = np.tensordot(Binv, D, axes=(1,0))       # output shape (nAnt, nChan, nWin)
+        D = np.ma.log10(Y2D).transpose((1,2,0))     # new shape (nBl, nChan, nWin)
+        lM = solve_masked(B, D)                      # output shape (nAnt, nChan, nWin)
         M = (10**lM)/1e6                             # convert back to linear scale in MJy
 
         vmin = z2min
@@ -424,7 +482,7 @@ for fvis in files:
         print(M.shape)
 
         Mout = M.transpose((2,0,1))
-        adoneh5(fvis, Mout, 'antSEFD2D')            # SEFD2D, shape: (nWin, nAnt, nChan)
+        adoneh5(fvis, Mout, 'antSEFD2D%s'%sfx)      # SEFD2D, shape: (nWin, nAnt, nChan)
 
         #fig, sub = plt.subplots(4,4,figsize=(16,12),sharex=True,sharey=True)
         fig = plt.figure(figsize=(16,12))
@@ -471,7 +529,58 @@ for fvis in files:
             ax2.set_yticklabels([])
             ax2.grid()
 
-        fig.suptitle('%s, SEFD2D, antenna solution'%fvis)
-        fig.savefig('%s/antenna_SEFD2D.png'%odir)
+        fig.suptitle('%s, SEFD2D%s, antenna solution'%(fvis, sfx))
+        fig.savefig('%s/antenna_SEFD2D%s.png'%(odir, sfx))
         plt.close(fig)
 
+
+
+    ## RFI gauge from the fringe-stopping (the discarded part), per baseline
+    winCoeffRFI = getData(fvis, 'winCoeffRFI')  # shape (nWin, nBl, nChan)
+    winCoeffFS  = getData(fvis, 'winCoeffFS')   # shape (nWin, nBl, nChan)
+    if (winCoeffRFI is not None and winCoeffFS is not None):
+        print('plot RFI gauge ...')
+        freq = getData(fvis, 'freq')    # MHz, nChan
+        rfi = np.ma.abs(winCoeffRFI[tsel][:,:,chlim[0]:chlim[1]])
+        src = winCoeffFS[tsel][:,:,chlim[0]:chlim[1]]
+        med_rfi = np.ma.median(np.ma.median(rfi, axis=0), axis=1)                                        # (nBl,)
+        med_src = np.ma.median(np.ma.median(src, axis=0), axis=1)                                         # (nBl,)
+        mat_rfi = np.ma.masked_all((nAnt, nAnt))
+        mat_src = np.ma.masked_all((nAnt, nAnt))
+        b = -1
+        for ai in range(nAnt-1):
+            for aj in range(ai+1, nAnt):
+                b += 1
+                if (ai in ant_flag or aj in ant_flag):
+                    continue
+                mat_rfi[ai,aj] = mat_rfi[aj,ai] = med_rfi[b]
+                mat_src[ai,aj] = mat_src[aj,ai] = med_src[b]
+
+        fig, sub = plt.subplots(2,2,figsize=(14,12))
+        for k, (mat, tit) in enumerate([(mat_src, 'fringe-stopped coeff (source)'), (mat_rfi, '|discarded| coeff (RFI gauge)')]):
+            ax = sub[0,k]
+            s = ax.imshow(mat, origin='lower', norm=colors.LogNorm())
+            cb = plt.colorbar(s, ax=ax)
+            cb.set_label('median coeff, ch%d-%d'%(chlim[0],chlim[1]))
+            ax.set_xlabel('Ant')
+            ax.set_ylabel('Ant')
+            ax.set_title(tit)
+        ax = sub[1,0]
+        ax.plot(freq, np.ma.median(np.ma.median(winCoeffFS[tsel], axis=0), axis=0), label='fringe-stopped (source)')
+        ax.plot(freq, np.ma.median(np.ma.median(np.ma.abs(winCoeffRFI[tsel]), axis=0), axis=0), label='|discarded| (RFI gauge)')
+        ax.axvspan(freq[chlim[0]], freq[chlim[1]-1], color='gray', alpha=0.2)
+        ax.set_yscale('log')
+        ax.set_xlabel('Frequency (MHz)')
+        ax.set_ylabel('median coeff over time and baselines')
+        ax.legend()
+        ax = sub[1,1]
+        ax.scatter(med_src, med_rfi, marker='.')
+        ax.set_xscale('log')
+        ax.set_yscale('log')
+        ax.set_xlabel('fringe-stopped coeff (source)')
+        ax.set_ylabel('|discarded| coeff (RFI gauge)')
+        ax.set_title('per baseline, ch%d-%d'%(chlim[0],chlim[1]))
+        fig.tight_layout(rect=[0,0.03,1,0.95])
+        fig.suptitle('%s, fringe-stop RFI gauge'%fvis)
+        fig.savefig('%s/baseline_RFI_fs.png'%odir)
+        plt.close(fig)
