@@ -188,7 +188,7 @@ if freq_mask_bands:
 arrInts  = []
 arrNInts = []
 freqs    = []
-tsecs    = []
+WindowElapsedTimes_s    = []
 arrDateTimes   = []
 
 if (not os.path.isdir(odir)):
@@ -219,7 +219,9 @@ for j in range(nDir):
 
     adoneh5(ofile, freq, 'freq')
 
-    files   = glob('%s/%s%s_*'%(idir, prefix, ring_name)) #intensity_
+    inputFilePattern =  '%s/%s%s_*'%(idir, prefix, ring_name)
+    print('input files from: ', inputFilePattern)
+    files   = glob(inputFilePattern) #intensity_
     files.sort()
     nFile   = len(files)
     if (False):
@@ -283,13 +285,16 @@ for j in range(nDir):
         #WindowElapsedTime_s  = fepoch - StartEpochTime
         WindowEpochTime = np.zeros(nTimeWindow)
         iWin = -1
+
+        BlockHeader_Byte = 64
         for i in range(nFile):
             fbin = files[i]
             print('reading: %s (%d/%d)'%(fbin, i+1,nFile))
             fh = open(fbin, 'rb')
 
 
-            BlockHeader_Byte = 64
+
+            #read multiple blocks in a file
             for j in range(fnWins[i]):
                 iWin += 1
                 print('file:',i,'win:',j,'win2:',iWin)
@@ -302,9 +307,10 @@ for j in range(nDir):
                     hd = fh.read(BlockHeader_Byte)
 
                     if (k == 0):
-                        tmp = decHeader2(hd)
+                        WindowEpochTime[iWin] = HeaderToTimestamp(hd)
+                        #tmp = decHeader2(hd, NPacketPerFrame=2)
                         ### to-do replace by general function
-                        WindowEpochTime[iWin] = tmp[2] + 2 + (tmp[0]-tmp[4])/prate # UTC
+                        #WindowEpochTime[iWin] = tmp[2] + 2 + (tmp[0]-tmp[4])/prate # UTC
                     buf = fh.read(nBytePerIntensityBlock)
                     #data = np.frombuffer(buf, dtype=np.float16).reshape((nTime,nFreqChan,nRow,nAnt))
                     data = np.frombuffer(buf, dtype=np.int16).astype(np.float32).reshape((nTime,nFreqChan,nRow,nAnt))
@@ -341,7 +347,7 @@ for j in range(nDir):
     arrInts.append(IntensityArray)
     arrNInts.append(NormalizedIntensityArray)
     print("Intensity array shape of row %d (time, frequency, row, antenna): "%j, IntensityArray.shape, NormalizedIntensityArray.shape)
-    tsecs.append(WindowElapsedTime_s)
+    WindowElapsedTimes_s.append(WindowElapsedTime_s)
 
 #IntensityArray = np.concatenate(arrInts, axis=3)
 #NormalizedIntensityArray = np.concatenate(arrNInts, axis=3)
