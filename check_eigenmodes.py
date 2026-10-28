@@ -130,15 +130,22 @@ for i in range(nFile):
     fbase = os.path.basename(fbin)   # use 1st dir as reference
     tmp = fbase.split('.')
     ftpart = tmp[1]
+    isutc = False
     if (len(ftpart)==10):
         ftstr = '23'+ftpart # hard-coded to 2023!!
+        ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
     elif (len(ftpart)==14):
         ftstr = ftpart[2:]
-    ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
+        ftime = datetime.strptime(ftstr, '%y%m%d%H%M%S')
+    elif (len(ftpart)==16):
+        ftime = datetime.strptime(ftpart, '%Y%m%d_%H%M%SZ')
+        isutc = True
+
     if (ftime0 is None):
         ftime0 = ftime
         unix0 = Time(ftime0, format='datetime').to_value('unix')    # local time
-        unix0 -= 3600.*8.                                           # convert to UTC
+        if (not isutc):
+            unix0 -= 3600.*8.                                           # convert to UTC
         attrs['unix_utc_open'] = unix0
 
     dt = (ftime - ftime0).total_seconds()

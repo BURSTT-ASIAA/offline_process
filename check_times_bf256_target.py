@@ -77,6 +77,10 @@ nBeam2 = None
 man_nAnt = 0
 man_nRow = 0
 
+# beam spacing stretch factors
+stretch1 = 1.0
+stretch2 = 1.0
+
 # whether to scale the intensity by SEFD, which is proportion to freq^2
 scale_snr = True
 
@@ -93,6 +97,10 @@ t_samp_s = 60    # 60 seconds
 
 # normalize intensity
 norm_int = False
+
+# show interactive plot
+show_plt = True
+
 
 '''
 #old ver
@@ -154,6 +162,8 @@ options are:
     --end HHMMSS        # end time for data recording in HHMMSS or yyyymmdd_HHMMSS format
                         # Use YYYYMMDD_HHMMSS if the end date differs from <date>.
                         # (default: 4 hours ahead of the transit time)
+    --mark time1 time2  # mark a local-time range in transparent red on the plot
+                        # each time is HHMMSS or YYYYMMDD-HHMMSS
     --tlim tr_low tr_hi # plot time range in hours from transit time
                         # If --start or --end is given, --tlim will be adjusted.
                         # (default: {tlim[0]:.1f} {tlim[1]:.1f})
@@ -164,10 +174,17 @@ options are:
                         # (default: {t_samp_s} seconds)
     --n1 nBeam1         # number of beams in 1st beamform (default: nAnt)
     --n2 nBeam2         # number of beams in 2nd beamform (default: nRow)
+    --st1 stretch1      # stretch factors to move the beams closer (<1) or wider (>1)
+    --st2 stretch2      # (default: both 1.0)
     --flim fmin fmax    # Frequency range in MHz
                         # (default: {fmin} {fmax})
+    --chlim min max     # changes only the spectral integration channel range
+                        # (1024 channels between fmin, fmax)
     --norm              # Plot intensity after normalization to the max(intensity)
                         # (default: no normalization)
+    --no_freq2          # disable the SNR scaling with 1/freq^2
+    --save              # save the beam profiles in a NPZ file
+    -q                  # (quiet mode) disable interactive plot (when executed by other scripts)
 ''' 
 
 if (len(inp)<1):
@@ -218,6 +235,11 @@ while(inp):
     elif (k == '--end'):
         t_rec_end = str(inp.pop(0))
         if len(t_rec_end) not in (15, 6): sys.exit('The format of --end is wrong')
+    elif (k == '--mark'):
+        mark_start = str(inp.pop(0))
+        mark_end = str(inp.pop(0))
+        if len(mark_start) not in (15, 6) or len(mark_end) not in (15, 6):
+            sys.exit('The format of --mark is wrong; use HHMMSS or YYYYMMDD-HHMMSS')
     elif (k == '--sign'):
         sign = int(inp.pop(0))
     elif (k == '--tsamp'):
@@ -230,6 +252,10 @@ while(inp):
         man_nAnt = int(inp.pop(0))
     elif (k == '--nrow'):
         man_nRow = int(inp.pop(0))
+    elif (k == '--st1'):
+        stretch1 = float(inp.pop(0))
+    elif (k == '--st2'):
+        stretch2 = float(inp.pop(0))
     elif (k == '--flim'):
         fmin = float(inp.pop(0))
         fmax = float(inp.pop(0))
@@ -242,6 +268,8 @@ while(inp):
         chlim[1] = int(inp.pop(0))
     elif (k == '--save'):
         saveNPZ = True
+    elif (k == '-q'):
+        show_plt = False
     #elif (k.startswith('-')): #this confuses with negative numbers
     elif (k.startswith('--')):
         sys.exit('unknown option: %s'%k)
@@ -301,7 +329,7 @@ if (nBeam2 is None):
 freq_MHz = np.linspace(fmin, fmax, nChan, endpoint=False) 
 freq_Hz = freq_MHz * 1e6
 lamb = 2.998e8 / (freq_MHz * 1e6)
-lamb0 = lamb[0]
+lamb0 = 2.998e8/400e6 # fixed at 400MHz
 
 
 
@@ -324,8 +352,8 @@ obs.temp = 25 # Celsius
 site = obs
 
 # original beam_sep
-sin_theta_m1_ori = lamb0/sep1/nAnt*(np.arange(nBeam1)+beam01)
-sin_theta_m2_ori = lamb0/sep2/nRow*(np.arange(nBeam2)+beam02)
+sin_theta_m1_ori = lamb0/sep1/nAnt*(np.arange(nBeam1)+beam01)*stretch1
+sin_theta_m2_ori = lamb0/sep2/nRow*(np.arange(nBeam2)+beam02)*stretch2
 
 # angle = np.array([-1.68, 9.45, 30.95, 35.24])
 
@@ -340,6 +368,8 @@ if theta_off_deg_1d != 0:
 
 beam_angle_1d_deg_ori = np.arcsin(sin_theta_m1_ori)*180/np.pi
 beam_angle_2d_deg_ori = np.arcsin(sin_theta_m2_ori)*180/np.pi
+print('BFM1 angles (deg):', beam_angle_1d_deg_ori)
+print('BFM2 angles (deg):', beam_angle_2d_deg_ori)
 
 
 # apply calibration using Sun
@@ -429,6 +459,8 @@ obs.date = obsdt
 
 if targetname.lower() == 'sun':
     body = ephem.Sun()
+    body.compute(obs)
+    print('target coord', body.ra, body.dec)
 
 else:
     target_coord = SkyCoord.from_name(targetname)
@@ -529,6 +561,7 @@ if cal_atten:
     #print('debug: max(Eatt)', Eatt.max())
     #print('debug: max(Hatt)', Hatt.max())
     att0 = Eatt*Hatt
+    print('peak att:', att0.max())
     inVolt *= att0[np.newaxis,np.newaxis,:,np.newaxis]
 
 outVolt = np.zeros((nBeam2, nBeam1, nSky, nChan), dtype=complex)
@@ -617,39 +650,53 @@ with open(f_out_txt, 'w') as f:
 b_start_arr = []
 b_end_arr = []
 max_bid_arr = []
+b_peak_arr = []
 
 i = nBeam1-1
 max_bid = np.argmax(np.max(a1[:,i], axis=1))
-#print('i=%d'%nBeam1, max_bid, a1[max_bid,i].max())
+#print('i=%d'%i, max_bid, a1[max_bid,i].max())
+#print(np.where(a1[max_bid,i,:] > 0.05*a1[max_bid,i].max()))
 j = np.where(a1[max_bid,i,:] > 0.15*a1[max_bid,i].max())[0][0]
 b_start = (ut2+timedelta(hours=UTCOffset_hr))[j]
 #.strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
+#print('b_start', b_start)
+j_start = j
+
 
 # SH: why #0 beam is treated separately?
 for i in range(nBeam1-1, 0, -1):
     max_bid = np.argmax(np.max(a1[:,i], axis=1))
+    b_peak = (ut2+timedelta(hours=UTCOffset_hr))[a1[max_bid,i,:].argmax()]
+    #print(i, ut2[a1[max_bid,i,:].argmax()], b_peak)
+    max_bid2 = np.argmax(np.max(a1[:,i-1], axis=1))
+    #print(max_bid, max_bid2)
     y1 = a1[max_bid,i]
-    y2 = a1[max_bid,i-1]
+    y2 = a1[max_bid2,i-1]
     j1 = np.ma.argmax(y1)
     j2 = np.ma.argmax(y2)
+    #print(j1,j2)
     y1.mask = True; y1.mask[j1:j2] = False
     y2.mask = True; y2.mask[j1:j2] = False
     j = np.ma.argmin(np.ma.abs(y1-y2))
     
     b_end = (ut2+timedelta(hours=UTCOffset_hr))[j]
     #.strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
+    #print('b_end', b_end)
 
     # ensure the time is in range for observation scheduling
     if (b_end <= t_start) or (b_start >= t_end): 
         b_start = b_end
-        continue
+        #continue
     elif (b_start < t_start): b_start = t_start
     elif (b_end > t_end): b_end = t_end
 
     b_start_str = b_start.strftime('%Y%m%d_%H%M%S')
     b_end_str = b_end.strftime('%Y%m%d_%H%M%S')
+    #b_peak_str = b_peak.strftime('%Y%m%d_%H%M%S')
+    b_peak_str = b_peak.strftime('%H:%M:%S %m%d%y')
+    y1_max = y1[j1]
 
-    print('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, b_start_str, b_end_str))
+    print('Beam %03d (row %02d, beam %02d, peak %.2f): %s - %s' % (max_bid*nBeam1+i, max_bid, i, y1_max, b_start_str, b_end_str))
     #with open(f_out_txt, 'a') as f:
     #    f.write('Beam %03d (row %d, beam %02d): %s - %s\n' % (max_bid*16+i, max_bid, i, b_start, b_end))
     #print('%s %s %d' % (b_start, b_end, max_bid*16+i))
@@ -660,12 +707,14 @@ for i in range(nBeam1-1, 0, -1):
     b_start_arr.append(b_start_str)
     b_end_arr.append(b_end_str)
     max_bid_arr.append(max_bid*nBeam1+i)
+    b_peak_arr.append(b_peak_str)
 
     b_start = b_end
 
 #i = 0
 for i in [0]:
     max_bid = np.argmax(np.max(a1[:,i], axis=1))
+    b_peak = (ut2+timedelta(hours=UTCOffset_hr))[a1[max_bid,i,:].argmax()]
     j = np.where(a1[max_bid,i,:] > 0.15*a1[max_bid,i].max())[0][-1]
     b_end = ((ut2+timedelta(hours=UTCOffset_hr))[j])
     #.strftime('%Y%m%d_%H%M%S')#.strftime('%Y%m%d %H:%M')
@@ -675,7 +724,13 @@ for i in [0]:
 
     b_start_str = b_start.strftime('%Y%m%d_%H%M%S')
     b_end_str = b_end.strftime('%Y%m%d_%H%M%S')
-    print('Beam %03d (row %02d, beam %02d): %s - %s' % (max_bid*nBeam1+i, max_bid, i, b_start_str, b_end_str))
+    #b_peak_str = b_peak.strftime('%Y%m%d_%H%M%S')
+    b_peak_str = b_peak.strftime('%H:%M:%S %m%d%y')
+
+    y1 = a1[max_bid,i]
+    y1_max = y1.max()
+
+    print('Beam %03d (row %02d, beam %02d, peak %.2f): %s - %s' % (max_bid*nBeam1+i, max_bid, i, y1_max, b_start_str, b_end_str))
     #with open(f_out_txt, 'a') as f:
     #    f.write('Beam %03d (row %d, beam %02d): %s - %s' % (max_bid*16+i, max_bid, i, b_start, b_end))
     #print('%s %s %d' % (b_start, b_end, max_bid*16+i))
@@ -685,14 +740,98 @@ for i in [0]:
     b_start_arr.append(b_start) # last beam
     b_end_arr.append(b_end)
     max_bid_arr.append(max_bid*nBeam1+i)
+    b_peak_arr.append(b_peak_str)
 
 
 b_start_arr = np.array(b_start_arr)
 b_end_arr = np.array(b_end_arr)
 max_bid_arr = np.array(max_bid_arr)
+b_peak_arr = np.array(b_peak_arr)
+
+#print('peak time:')
+#print(b_peak_arr)
+
+## re-derive peak_time (debug)
+fpeak2 = '%s.peak_time'%OutFilePrefix
+with open(fpeak2, 'w') as fh:
+    b_peak2 = []
+    for i in range(nBeam1-1,-1,-1):
+        max_bid = max_bid_arr[i] // nBeam1  # take the row id
+        #print('debug: i, max_bid', i, max_bid)
+        y = a1[max_bid, i]
+        j = y.argmax()
+        dt_peak2 = ut2[j] + timedelta(hours=UTCOffset_hr)
+        b_peak2_str = dt_peak2.strftime('%H:%M %m%d%y')
+        b_peak2.append(b_peak2_str)
+        print('Beam%02d: %s'%(i, b_peak2_str), file=fh)
+    b_peak2 = np.array(b_peak2)
+
+fpeak = '%s.at_peak'%OutFilePrefix
+with open(fpeak, 'w') as fh:
+    print("#CMD='/home/ubuntu/rudp256_300m/multi_dump.py 5 -w 5 --fushan'",file=fh)
+    print("#CMD='/home/ubuntu/rudp64_wrbd_3/multi_dump.py 5 -w 5'",file=fh)
+    print("#CMD='/home/ubuntu/rudp16/multi_dump.py 5 -w 5'",file=fh)
+    for i in range(nBeam1):  # follow the appended order
+        #print("echo '/home/ubuntu/rudp256_300m/multi_dump.py 5 -w 5 --fushan' | at %s"%b_peak_arr[i], file=fh)
+        #print("echo '/home/ubuntu/rudp256_300m/multi_dump.py 5 -w 5 --fushan' | at %s"%b_peak2[i], file=fh)
+        print("echo $CMD | at %s"%b_peak2[i], file=fh)
+
+
+
+## save the profiles
+if (saveNPZ):
+    f_out_npz = '%s.npz' % OutFilePrefix
+    # note: np.load(fnpz, allow_pickle=True)
+    attr = {
+            'src':targetname,
+            'site':sitename,
+            'theta_rot_deg=':theta_rot_deg,
+            'nAnt':nAnt,
+            'nRow':nRow,
+            'beam01':beam01,
+            'beam02':beam02,
+            'nBeam1':nBeam1,
+            'nBeam2':nBeam2,
+            'sep1':sep1,
+            'sep2':sep2,
+            'stretch1':stretch1,
+            'stretch2':stretch2,
+            'EWhwhm':Ehwhm,
+            'NShwhm':Hhwhm,
+            'EWcent':Ecent,
+            'NScent':Ncent
+            }
+
+    np.savez(f_out_npz,
+            attr=attr,
+            beam_prof=a1,       # shape (BeamNS, BeamEW, time)
+            datetime_ut=ut2,    # datetime array, shaep (time,)
+            az=az,
+            el=el,
+            EWang=EWang,
+            NSang=NSang,
+            atten=att0,
+            b_start=b_start_arr,    # estimated beam switching on time, shape (BeamNS,)
+            b_end=b_end_arr,        # estimated beam switching off time, shape (BeamNS,)
+            #b_peak=b_peak_arr,
+            b_peak=b_peak2,
+            max_bid=max_bid_arr     # beam id of the peak intensity, shape (BeamNS,)
+            )
 
 #ax.set_xlim([t_trans_utc + timedelta(hours=tlim[0]+ UTCOffset_hr), t_trans_utc + timedelta(hours=tlim[1]+8)])
 ax.set_xlim(x_min, x_max)
+
+if 'mark_start' in globals():
+    def parse_mark_time(value):
+        if len(value) == 15:
+            return datetime.strptime(value, '%Y%m%d-%H%M%S')
+        return datetime.strptime(obsdate+'-'+value, '%Y%m%d-%H%M%S')
+
+    mark_start_dt = parse_mark_time(mark_start)
+    mark_end_dt = parse_mark_time(mark_end)
+    if mark_end_dt <= mark_start_dt:
+        sys.exit('--mark end time must be later than start time')
+    ax.axvspan(mark_start_dt, mark_end_dt, color='red', alpha=0.3, zorder=0)
 
 # label E-W beams
 for i in range(nBeam1):
@@ -716,7 +855,7 @@ ax.grid(which='both')
 
 # common title with Latex for symbols
 title1 = (
-    rf"{targetname} at {sitename} "
+    rf"{targetname} at {sitename} freq[{fmin},{fmax}] "
     rf"($\theta_{{\mathrm{{rot}}}} = {theta_rot_deg:.2f}^\circ$), "
     rf"transit at {t_trans_local:%Y-%m-%d %H:%M:%S}, "
 )
@@ -744,41 +883,6 @@ else:
 ax.tick_params(which='major', length=UTCOffset_hr)
 fig.tight_layout()
 fig.savefig('%s.png' % (OutFilePrefix))
-plt.show()
+if (show_plt):
+    plt.show()
 
-
-## save the profiles
-if (saveNPZ):
-    f_out_npz = '%s.npz' % f_out_name
-    # note: np.load(fnpz, allow_pickle=True)
-    attr = {
-            'src':targetname,
-            'site':sitename,
-            'theta_rot_deg=':theta_rot_deg,
-            'nAnt':nAnt,
-            'nRow':nRow,
-            'beam01':beam01,
-            'beam02':beam02,
-            'nBeam1':nBeam1,
-            'nBeam2':nBeam2,
-            'sep1':sep1,
-            'sep2':sep2,
-            'EWhwhm':Ehwhm,
-            'NShwhm':Hhwhm,
-            'EWcent':Ecent,
-            'NScent':Ncent
-            }
-
-    np.savez(f_out_npz,
-            attr=attr,
-            beam_prof=a1,       # shape (BeamNS, BeamEW, time)
-            datetime_ut=ut2,    # datetime array, shaep (time,)
-            az=az,
-            el=el,
-            EWang=EWang,
-            NSang=NSang,
-            atten=att0,
-            b_start=b_start_arr,    # estimated beam switching on time, shape (BeamNS,)
-            b_end=b_end_arr,        # estimated beam switching off time, shape (BeamNS,)
-            max_bid=max_bid_arr     # beam id of the peak intensity, shape (BeamNS,)
-            )

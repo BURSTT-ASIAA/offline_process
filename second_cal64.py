@@ -45,9 +45,6 @@ pad  = 32   # fft padding factor; for dividing the lag sample to finer resolutio
 
 sitename = 'longtien'
 src  = 'sun'
-cdir_path = '/burstt5/disk1/2nd_cal'
-if (not os.path.isdir(cdir_path)):
-    cdir_path = '.'
 make_copy = True
 
 separation_m  = 2.0          # row spacing in meters
@@ -125,8 +122,8 @@ options are:
     --ant antenna_type  # 'MMLPDA', 'ASIAALPDA', 'MED' use pre-defined gain and beamwidth (default: %s)
 
     --copy DIR  # change the copying destination for 2nd_cal results
-                # default: %s
-''' % (pg, nFrame, separation_m, theta_rot_deg, sitename, src, flux_sun_410MHz, flux_sun_610MHz, G0, EW_hwhm, NS_hwhm, antenna_type, cdir_path)
+                # default: site-dependent
+''' % (pg, nFrame, separation_m, theta_rot_deg, sitename, src, flux_sun_410MHz, flux_sun_610MHz, G0, EW_hwhm, NS_hwhm, antenna_type)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -240,13 +237,21 @@ if station_config:
 #else:
 #    sys.exit('Invalid site name: %s' % sitename)
 
-'''
-if (sitename == 'fushan6'):
-    theta_rot_deg = -3.0
-elif (sitename == 'longtien'):
-    theta_rot_deg = 0.5
-    separation_m = 2.0
-'''
+if (sitename == 'longtien' or sitename.lower()=='ltn'):
+    cdir_path = '/burstt5/disk1/2nd_cal'
+    #theta_rot_deg = 0.5
+    #separation_m = 2.0
+elif (sitename == 'lyudao' or sitename.lower()=='grn'):
+    cdir_path = '/burstt6/disk8/2nd_cal'
+    #separation_m = 1.0
+    #theta_rot_deg = 0.0
+elif (sitename == 'fushan6' or sitename.lower()=='fus'):
+    cdir_path = '/burstt12/disk12/2nd_cal'
+    #theta_rot_deg = -3.0
+    #separation_m = 1.0
+
+if (not os.path.isdir(cdir_path)):
+    cdir_path = '.'
 
 
 ## added (2026-03-26, Sujin)
@@ -372,8 +377,8 @@ for ai in range(nFPGA-1):
         ax.grid()
         
         if (ii==jj):
-            ax.set_ylabel('phase (rad)')
-            ax.set_xlabel('freq (MHz)')
+            ax.set_ylabel('Phase (rad)')
+            ax.set_xlabel('Frequency (MHz)')
         
 fig.tight_layout()
 fig.subplots_adjust(wspace=0, hspace=0)
@@ -400,7 +405,7 @@ for ai in range(nFPGA-1):
         
         if (ii==jj):
             ax.set_ylabel('abs(coeff)')
-            ax.set_xlabel('freq (MHz)')
+            ax.set_xlabel('Frequency (MHz)')
         
 fig.tight_layout()
 fig.subplots_adjust(wspace=0, hspace=0)
@@ -455,7 +460,7 @@ for ai in range(nFPGA-1):
         
         if (ii==jj):
             ax.set_ylabel('SEFD (Jy)')
-            ax.set_xlabel('freq (MHz)')
+            ax.set_xlabel('Frequency (MHz)')
         
 fig.tight_layout()
 fig.subplots_adjust(wspace=0, hspace=0)
@@ -490,9 +495,9 @@ R = BM - D              # residual, shape: (nBaseline, nChan)
 amSEFD1 = 10**(M)       # linear modified SEFD per ant, shape: (nAnt, nChan)
 med_SEFD = np.median(amSEFD1, axis=0, keepdims=True) # median between antennas
 del_SEFD = amSEFD1/med_SEFD
-wt_SEFD = 1./np.median(del_SEFD, axis=1) # weighting based on relative SEFD
+wt_SEFD = 1./np.median(del_SEFD[:,chlim[0]:chlim[1]], axis=1) # weighting based on relative SEFD
 print('wt_SEFD:', wt_SEFD)
-med_aSEFD = np.median(amSEFD1, axis=1)
+med_aSEFD = np.median(amSEFD1[:,chlim[0]:chlim[1]], axis=1)
 
 fig, s2d = plt.subplots(2,2,figsize=(12,8), sharex=True, sharey=True)
 sub = s2d.flatten()
@@ -507,7 +512,7 @@ for ai in range(nFPGA):
 
 for i in range(2):
     s2d[i,0].set_ylabel('mSEFD (MJy)')
-    s2d[1,i].set_xlabel('freq (MHz)')
+    s2d[1,i].set_xlabel('Frequency (MHz)')
 
 fig.tight_layout()
 fig.subplots_adjust(wspace=0, hspace=0)
@@ -542,7 +547,7 @@ for ai in range(nFPGA-1):
         
         if (ii==jj):
             ax.set_ylabel('Tsys (K)')
-            ax.set_xlabel('freq (MHz)')
+            ax.set_xlabel('Frequency (MHz)')
         
 fig.tight_layout()
 fig.subplots_adjust(wspace=0, hspace=0)
@@ -558,7 +563,7 @@ fig, ax = plt.subplots(1,1,figsize=(10,6), sharex=True, sharey=True)
 for i in range(nFPGA):
     ax.plot(freq_MHz, 10*np.log10(W1[:,i]))
 
-ax.set_xlabel('freq (MHz)')
+ax.set_xlabel('Frequency (MHz)')
 ax.set_ylabel('W (dB)')
 
 fig.savefig('%s/eigenvalue.png'%cdir)
@@ -654,7 +659,7 @@ for i in range(nFPGA):
     if (i == 0):
         ax.legend()
     if (i>=2):
-        ax.set_xlabel('freq (MHz)')
+        ax.set_xlabel('Frequency (MHz)')
     if (i%4==0):
         ax.set_ylabel('rel.strength')
     ax.set_ylim(0, 2)
@@ -718,8 +723,8 @@ for i in range(nFPGA):
         ax.legend()
 
 for i in range(2):
-    s2d[i,0].set_ylabel('phase (rad)')
-    s2d[1,i].set_xlabel('freq (MHz)')
+    s2d[i,0].set_ylabel('Phase (rad)')
+    s2d[1,i].set_xlabel('Frequency (MHz)')
 
 fig.tight_layout(rect=[0,0.03,1,0.95])
 png = '%s/ant_phase_correct.png'%cdir

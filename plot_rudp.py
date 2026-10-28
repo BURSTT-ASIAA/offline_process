@@ -233,9 +233,9 @@ for fii,fin in enumerate(files):
         if (ylim is not None):
             ax.set_ylim(ylim)
         if (ai >= 12):
-            ax.set_xlabel('freq (MHz)')
+            ax.set_xlabel('Frequency (MHz)')
         if (ai%4 == 0):
-            ax.set_ylabel('power (dB)')
+            ax.set_ylabel('Power (dB)')
     warnings.filterwarnings('default')
 
 

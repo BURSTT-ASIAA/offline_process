@@ -21,8 +21,7 @@ nAnt    = 16
 nBeam   = nRow*nAnt
 nChan0  = 1024
 nChan   = 512       # for 64-ant
-flim    = [400., 800.]
-freq0    = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
+flim    = [300., 700.]
 
 blocklen = 51200    # number of frames per block
 nSum    = 400       # integration number
@@ -49,12 +48,14 @@ options are:
     -o <odir>       # specify an output dir
     --redo          # force reading raw data
     --zlim zmin zmax# set the min/max color scale
+    --flim fmin fmax# set the freq range in MHz (full 1024ch)
+                    # (%.0f, %.0f MHz)
     -v              # verbose
     --raw           # plot the raw intensity
                     # (default is to plot the normalized intensity)
     --both          # plot both raw and normalized intensities
 
-''' % (pg, nSum, blocklen)
+''' % (pg, nSum, blocklen, flim[0], flim[1])
 
 
 if (len(inp)<1):
@@ -77,6 +78,10 @@ while (inp):
         idir = inp.pop(0)
         dirs.append(idir)
         rings.append(ring_id)
+    elif (k == '--flim'):
+        fmin = float(inp.pop(0))
+        fmax = float(inp.pop(0))
+        flim = [fmin, fmax]
     elif (k=='-v'):
         verbose=1
     elif (k=='--raw'):
@@ -89,6 +94,7 @@ while (inp):
         sys.exit('extra argument: %s'%k)
 
 
+freq0    = np.linspace(flim[0], flim[1], nChan0, endpoint=False)
 nTime   = blocklen//nSum
 nElem   = nTime*nChan*nBeam
 nByte   = nElem * 2
@@ -119,7 +125,7 @@ for j in range(nDir):
 
     adoneh5(ofile, freq, 'freq')
 
-    files   = glob('%s/intensity_%s_*'%(idir,ring_name))
+    files   = glob('%s/intensity_*%s_*'%(idir,ring_name))
     files.sort()
     nFile   = len(files)
     if (False):
@@ -235,7 +241,7 @@ for kk in range(nDir):
             ax = sub[nRow-1-j, ai]
             ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
 
-            prof = arrNInt[:,:,j,ai].mean(axis=1) # avg in freq, each node separately
+            prof = np.median(arrNInt[:,:,j,ai], axis=1) # avg in freq, each node separately
             ax2 = sub2[nRow-1-j, ai]
             ax2.plot(winDT, prof)
             ax2.set_ylim(vmin, vmax)
@@ -255,9 +261,9 @@ for j in range(nRow):
     sub = s2d[0::2,:].flatten()
     sub2 = s2d[1::2,:].flatten()
     for ii in range(4):
-        s2d[ii*2,0].set_ylabel('freq (MHz)')
-        s2d[ii*2+1,0].set_ylabel('amp')
-        s2d[7,ii].set_xlabel('time (sec)')
+        s2d[ii*2,0].set_ylabel('Frequency (MHz)')
+        s2d[ii*2+1,0].set_ylabel('Amp')
+        s2d[7,ii].set_xlabel('Time (sec)')
 
     for kk in range(nDir):
         arrInt = arrInts[kk]

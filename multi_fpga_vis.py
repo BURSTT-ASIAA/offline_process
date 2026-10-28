@@ -480,8 +480,8 @@ for fi in range(nFile):
                 for ai in range(nInp):  # the auto
                     ax = sub2d[ai,ai]
                     ax.plot(freq, y1[ai])
-                    ax.set_xlabel('freq (MHz)')
-                    ax.set_ylabel('power (dB)')
+                    ax.set_xlabel('Frequency (MHz)')
+                    ax.set_ylabel('Power (dB)')
                     ax.set_title(inpIdx[ai])
                 b = -1
                 for ai in range(nInp-1):
@@ -501,9 +501,9 @@ for fi in range(nFile):
                         ax.set_title('%s-%s'%(inpIdx[ai], inpIdx[aj]))
                 for i in range(nY):
                     ax = sub2d[i,i]
-                    ax.set_xlabel('freq (MHz)')
+                    ax.set_xlabel('Frequency (MHz)')
                     if (pt == 1):
-                        ax.set_ylabel('phase (rad)')
+                        ax.set_ylabel('Phase (rad)')
                         ax.set_ylim(-3.3, 3.3)
                     elif (pt == 2):
                         ax.set_ylabel('coeff')

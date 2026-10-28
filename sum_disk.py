@@ -20,6 +20,7 @@ syntax:
 options are
     --inten     summarize intensity instead of baseband data
     --fpga      specifically finding calibration only
+    --baseband  new baseband format
     --patt PATT additional pattern matching (e.g. for a specific month)
 
 ''' % (pg,)
@@ -34,6 +35,8 @@ while(inp):
         typ = 'inten'
     elif (k == '--fpga'):
         typ = 'fpga'
+    elif (k == '--baseband'):
+        typ = 'baseband'
     elif (k == '--patt'):
         patt = inp.pop(0)
     elif (k.startswith('-')):
@@ -54,6 +57,8 @@ for idir in inp_dirs:
         ifiles = glob('%s/fpga?.%s.bin'%(idir,patt))
     elif (typ == 'inten'):
         ifiles = glob('%s/intensity_%s'%(idir,patt))
+    elif (typ == 'baseband'):
+        ifiles = glob('%s/baseband?_%s'%(idir,patt))
     nTot = len(ifiles)
 
     dates = []
@@ -79,6 +84,14 @@ for idir in inp_dirs:
             tmp = f.split('_')  # e.g.: intensity_ring1_sum400_260204_212722_f0
             tmp2 = '%s/'%dir0 + '_'.join(tmp[1:4])
             tmp3 = '_'.join(tmp[1:4])
+        elif (typ == 'baseband'):
+            dir0 = os.path.dirname(f)
+            tmp = f.split('_')  # e.g.: baseband0_order00_20260818_021900Z
+            #print(tmp)
+            ymd = tmp[2][2:]
+            #tmp2 = '%s/'%dir0 + '_'.join([tmp[1], ymd])
+            tmp2 = '%s/'%dir0 + '_'.join(tmp[1:3])
+            tmp3 = '_'.join(tmp[1:3])
 
         dates.append(tmp2)
         names.append(tmp3)
@@ -93,7 +106,7 @@ for idir in inp_dirs:
         nm = uniq2[j]
         if (typ == 'bin' or typ == 'fpga'):
             jfiles = glob('%s*.bin'%nm)
-        elif (typ == 'inten'):
+        elif (typ == 'inten' or typ == 'baseband'):
             jfiles = glob('%s/*%s*'%(idir,nm))
         size  = 0
         sizet = 0
