@@ -62,7 +62,7 @@ def LSRvel(ra, dec, obstime, loc='taroge4'):
     return vlsr
 
 
-def obsBody(body, site='taroge4', time=datetime.utcnow(), epoch='2000', DB={}, retOBS=False, **kwargs):
+def obsBody(body, site='taroge4', time=datetime.utcnow(), epoch='2000', DB=DB, retOBS=False, **kwargs):
         ## define planet to calculate
         if   (body.lower() in 'jupiter'):
             b = Jupiter()
@@ -91,7 +91,7 @@ def obsBody(body, site='taroge4', time=datetime.utcnow(), epoch='2000', DB={}, r
             b._dec = degrees(tmp['DECs'])
             b._epoch = '2000'
         else:
-            print('unknown PLANET =', body)
+            print('unknown BODY =', body)
             sys.exit()
 
 
