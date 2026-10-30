@@ -311,7 +311,9 @@ for ll in range(nLoop):
     tag = '/'.join(os.path.abspath(cdir).split('/')[-2:])
 
     if (os.path.isfile(arr_config)):
-        pos = arrayConf(arr_config)
+        pos = arrayConf(arr_config, theta_rot=theta_rot)
+        if (len(pos) != nFile*nAnt):
+            sys.exit('array config %s has %d antennas, expected %d (nFile*nAnt, in input order)'%(arr_config,len(pos),nFile*nAnt))
     else:
         pos = arrayConf(arr_config, nFile, rows=rows, theta_rot=theta_rot)
     #print('debug:', 'pos.shape=',pos.shape, pos)
@@ -469,13 +471,9 @@ for ll in range(nLoop):
         savN3.append(norm3)
         savN3mask.append(norm3.mask)
 
-        coeff1 = np.ma.zeros((nBl,nChan), dtype=complex)
-        b = -1
-        for ai in range(nAnt-1):
-            for aj in range(ai+1,nAnt):
-                b += 1
-                #print(b, ai,aj)
-                coeff1[b] = Cov3[ai,aj]
+        # all baselines of the (nFile*nAnt)-input covariance, order (ai<aj)
+        bi, bj = np.triu_indices(Cov3.shape[0], 1)
+        coeff1 = np.ma.array(Cov3[bi,bj])
 
         #Vlast[ii] = V[:,:,nAnt-1]
         t2 = time.time()
@@ -720,7 +718,10 @@ for ll in range(nLoop):
             med_SEFD = np.ma.median(all_SEFD[row_slice],axis=0,keepdims=True)
             del_SEFD[row_slice] = all_SEFD[row_slice]/med_SEFD
             wt_SEFD[row_slice] = 1./np.ma.median(del_SEFD[row_slice,chlim[0]:chlim[1]],axis=1)
-        adoneh5(fout,all_coeff,'coeff')
+        # save all nAnt3*(nAnt3-1)/2 baselines (incl. cross-row), order (ai<aj); all_coeff (within-row only) is for the row SEFD
+        full_cov = np.einsum('cik,ck,cjk->cij',savV3,savW3,savV3.conjugate(),optimize=True)
+        bi, bj = np.triu_indices(nAnt3, 1)
+        adoneh5(fout,np.ma.array(full_cov[:,bi,bj].T),'coeff')
         adoneh5(fout,all_SEFD,'SEFD400')
         adoneh5(fout,wt_SEFD,'wt_SEFD')
 
