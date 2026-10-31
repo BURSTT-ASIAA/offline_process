@@ -58,6 +58,7 @@ tlim    = None
 freq_ref = 400e6    # reference frequency to scale the SEFD
 flam_ref = 2.998e8/freq_ref # reference lambda
 site    = None
+theta_rot = None
 clight  = 2.998e8
 
 
@@ -84,6 +85,10 @@ options are:
                     # (both default to 0, for using the full range)
 
     --site SITE     # specify the site name, if not specified, will determine from ANT_CONF below
+    --rot DEG       # specify the array rotation angle in degree
+                    # FUS = -3.0
+                    # LTN = +0.5
+                    # GRN, KMN = 0.0
     --aconf ANT_CONT # specify an antenna configuration file
                     # default is none
 
@@ -157,6 +162,8 @@ while (inp):
         body = inp.pop(0)
     elif (k == '--site'):
         site = inp.pop(0).lower()
+    elif (k == '--rot'):
+        theta_rot = float(inp.pop(0)) # degree
     elif (k == '--aconf'):
         aconf = inp.pop(0)
     elif (k == '--ai'):
@@ -225,6 +232,24 @@ while (inp):
 print('file:', files)
 
 
+if (not site is None):
+    if (site.lower() == 'fus'):
+        theta_rot = -3.0
+        if (aconf is None):
+            aconf = '16x1.0y0.5'
+    elif (site.lower() == 'ltn'):
+        theta_rot = 0.5
+        if (aconf is None):
+            aconf = '16x1.0y1.0'
+    elif (site.lower() == 'grn' or site.lower() == 'kmn'):
+        theta_rot = 0.0
+        if (aconf is None):
+            aconf = '16x1.0y1.0'
+    
+if (theta_rot == None):
+    theta_rot = 0.0
+
+
 if (aconf is None):
     do_model = False
 else:
@@ -233,7 +258,12 @@ else:
     tmp2 = tmp.split('_')
     if (site is None):
         site = tmp2[0].lower()
-    antXYZ = np.loadtxt(aconf, usecols=(1,2,3), ndmin=2)
+    #antXYZ = np.loadtxt(aconf, usecols=(1,2,3), ndmin=2)
+    if (os.path.isfile(aconf)):
+        antXYZ = arrayConf(aconf, theta_rot=theta_rot)
+    else:
+        antXYZ = arrayConf(aconf, nRow=1, theta_rot=theta_rot) # only 1 row?
+
 if (do_model and revpos):
     print('reversing the ant pos...')
     antXYZ = np.flip(antXYZ, axis=0)
