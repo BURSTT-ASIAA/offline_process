@@ -200,9 +200,12 @@ def formSpec2(data0, bpp=8192, nAnt=16, nFPGA=16, grp=2, nChan=128, nStack=4, bi
     antSpec = tmp.transpose((1,0,2,4,3,5)).reshape((nFPGA,nFrame,nAnt,nChan))
     antSpec = np.ma.array(antSpec, mask=False)
 
-    tmp2 = np.tile(bitmap.reshape((1,nChunk,nFPGA)), (nStack,1,1))
+    # also drop packets whose header failed to decode in loadBatch
+    valid = bitmap & ~np.ma.getmaskarray(data0).any(axis=1)
+    tmp2 = np.tile(valid.reshape((1,nChunk,nFPGA)), (nStack,1,1))
     #print(tmp2.shape)
-    antSpec.mask = ~tmp2.transpose((2,1,0)).reshape((nFPGA,nFrame,1,1))
+    # the mask setter does not broadcast (it fills .flat cyclically), so expand explicitly
+    antSpec.mask = np.broadcast_to(~tmp2.transpose((2,1,0)).reshape((nFPGA,nFrame,1,1)), antSpec.shape)
     #print(antSpec)
 
     return antSpec
@@ -498,13 +501,14 @@ def convertBitmap(buf):
             nBit = 8*N
     '''
 
-    bitmap = np.unpackbits(np.frombuffer(buf, dtype=np.uint8)).astype(bool)
+    # the writer packs bits LSB-first: packet i is bit (i%8) of byte (i//8)
+    bitmap = np.unpackbits(np.frombuffer(buf, dtype=np.uint8), bitorder='little').astype(bool)
 
     return bitmap
 
 
 def makeBitmap(bitmap):
-    arr = np.packbits(bitmap,bitorder='big')   # boolean or integers are ok
+    arr = np.packbits(bitmap,bitorder='little')   # boolean or integers are ok; same order as convertBitmap
     nbyte = len(arr)
     buf = struct.pack('>%dB'%nbyte, *arr)
     return buf

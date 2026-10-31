@@ -87,20 +87,20 @@ plot_ring() {
 	fi
 }
 
-for ring_dir in 15 16; do
-	beam_dir=b$ring_dir
-	echo $beam_dir
-	[[ -d $beam_dir && -n $(find "$beam_dir" -type l -print -quit) ]] || continue
-	case $ring_dir in
-		16) ring=0 ;;
-		15) ring=2 ;;
-		12) ring=4 ;;
-		11) ring=6 ;;
+# each beam dir holds two ring orders: ring0 files -> even order, ring1 files -> odd order
+for ring in 0 1 2 3 4 5 6 7; do
+	case $ring in
+		0|1) beam_dir=b16 ;;
+		2|3) beam_dir=b15 ;;
+		4|5) beam_dir=b12 ;;
+		6|7) beam_dir=b11 ;;
 	esac
-	echo $beam_dir $ring
+	ring_name=ring$((ring % 2))
+	if [[ ! -d $beam_dir || -z $(find "$beam_dir" -name "intensity_${ring_name}_*" -print -quit) ]]; then
+		echo "Skipping order $ring: no ${ring_name} files in $beam_dir" >&2
+		continue
+	fi
+	echo "Plotting order $ring from $beam_dir ($ring_name)"
 	plot_ring "$ring" "$beam_dir"
-	#if [[ $ring_dir == 15 ]]; then
-	#	plot_ring 0 "$beam_dir"
-	#fi
 done
 

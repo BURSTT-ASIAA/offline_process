@@ -223,7 +223,7 @@ if (chlim is None):
 nBl = int(nAnt * (nAnt-1) / 2)
 
 # SH : we need to update pyplanet.py obsSite as well
-if (site == 'fushan6' ): # or site == 'FUS'):
+if (site == 'fushan6' or site.lower() == 'fus'):
     if (theta_rot is None):
         theta_rot = -3.0    # sujin's number
         #theta_rot = -1.8    # old number
