@@ -76,6 +76,7 @@ nBeam2 = None
 # arbitrary nAnt, nRow
 man_nAnt = 0
 man_nRow = 0
+row_mask = []   # rows excluded from the 2nd (NS) beamform, e.g. [14, 15] for the real-time BF256
 
 # beam spacing stretch factors
 stretch1 = 1.0
@@ -133,6 +134,9 @@ e.g.:
 options are:
     --nant nAnt         # override nAnt from site config
     --nrow nRow         # override nRow from site config
+    --row_mask 'r0 r1 ...'
+                        # rows excluded from the 2nd (NS) beamform, as -m in write_2nd_matrix_256
+                        # (e.g. '14 15' for the current Fushan BF256; default: none)
     --off deg            # additional offset angles of the 1D beams in deg
                         # (default: {theta_off_deg_1d:.1f} deg)
     --site SITE         # predefined site name (e.g., fus, ltn)
@@ -252,6 +256,8 @@ while(inp):
         man_nAnt = int(inp.pop(0))
     elif (k == '--nrow'):
         man_nRow = int(inp.pop(0))
+    elif (k == '--row_mask'):
+        row_mask = [int(x) for x in inp.pop(0).split()]
     elif (k == '--st1'):
         stretch1 = float(inp.pop(0))
     elif (k == '--st2'):
@@ -444,7 +450,12 @@ BTau_s = pos0[:,0,1].reshape((1,nRow,1))*sin_theta_m.reshape((nBeam2,1,1))/2.998
 BFM2 = np.exp(-1.j*2.*np.pi*BTau_s*freq_Hz.reshape((1,1,nChan)))
 #BFM2 *= scale
 BFM2 /= nRow
-BFM2 = BFM2.transpose((2,1,0))
+BFM2 = BFM2.transpose((2,1,0))  # (nChan, nRow, nBeam2)
+if (len(row_mask) > 0):
+    if (max(row_mask) >= nRow or min(row_mask) < 0):
+        sys.exit('Check --row_mask: rows must be within 0..%d' % (nRow-1))
+    BFM2[:,row_mask,:] = 0.     # same as the real-time matrix: masked rows zeroed, no renormalization
+    print('2nd beamform excludes rows:', row_mask)
 
 del sin_theta_m, BTau_s
 
@@ -641,6 +652,8 @@ if 't_rec_end' in globals():
 
 # png, txt, npz files
 OutFilePrefix = 'times_%s_%s_%s_%dx%d_b0_%.2f_%.2f_utc_%d' % (targetname, int(obsdate), sitename, nBeam1, nBeam2, beam01, beam02, UTCOffset_hr)
+if (len(row_mask) > 0):
+    OutFilePrefix += '_m' + '-'.join('%d' % r for r in row_mask)
 
 f_out_txt = '%s.txt' % (OutFilePrefix)
 with open(f_out_txt, 'w') as f:
@@ -799,7 +812,8 @@ if (saveNPZ):
             'EWhwhm':Ehwhm,
             'NShwhm':Hhwhm,
             'EWcent':Ecent,
-            'NScent':Ncent
+            'NScent':Ncent,
+            'row_mask':row_mask
             }
 
     np.savez(f_out_npz,
