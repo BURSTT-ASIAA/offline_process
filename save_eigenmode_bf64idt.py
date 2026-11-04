@@ -286,7 +286,7 @@ for ll in range(nLoop):
                 tsec.append(dt)
             fh = open(fbin, 'rb')
             # spec0.shape = (nFPGA, nFrame, nAnt, nChan)
-            spec0, order0 = loadNode(fh, p0, nPack, nFPGA=nFPGA, order_off=order_off, bitwidth=bitwidth, verbose=1,get_order=True)
+            spec0, order0 = loadNode(fh, p0, nPack, nFPGA=nFPGA, order_off=order_off, bitwidth=bitwidth, verbose=1,get_order=True, no_bitmap=no_bitmap)
             fh.close()
 
             # trasposed shape = (nFPGA, nAnt, nFrame, nChan)

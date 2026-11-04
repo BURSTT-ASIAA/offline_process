@@ -57,8 +57,13 @@ if (site not in site_ips):
 ips = site_ips[site]
 mrow = len(ips) # max rows defined in fpga_alias
 
+if (site.lower() == 'ltn' or site.lower() == 'grn'):
+    rprefix = 'recal64'
+else: # fus
+    rprefix = 'recal256'
+
 if (mode in ('recal', '1stcal')):
-    source_prefix = 'recal256' if mode == 'recal' else '1stcal'
+    source_prefix = rprefix if mode == 'recal' else '1stcal'
     source_pattern = r'%s_(\d{8})_(\d{6})Z\.eigen\.h5\.check'%source_prefix
     if (recal_source is None):
         current_dir = os.path.abspath('.')
