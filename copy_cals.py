@@ -82,17 +82,17 @@ if (mode in ('recal', '1stcal')):
     if (not os.path.isdir(recal_source) or match is None):
         sys.exit('invalid %s source directory: %s'%(mode,recal_source))
 
-    if (mode == 'recal'):
-        if (mrow < 16):
-            sys.exit('site %s has %d FPGA rows; recal mode requires 16'%(site,mrow))
-        copy_rows = list(range(16))
-    else:
-        copy_rows = sorted(int(os.path.basename(rowdir)[3:]) for rowdir in glob(os.path.join(recal_source,'row[0-9][0-9]')) if os.path.isdir(rowdir))
-        if not copy_rows:
-            sys.exit('no rowNN directories found in %s'%recal_source)
-        invalid_rows = [row for row in copy_rows if row >= mrow]
-        if invalid_rows:
-            sys.exit('site %s has no FPGA mapping for physical rows: %s'%(site,invalid_rows))
+    #if (mode == 'recal'):
+    #    if (mrow < 16):
+    #        sys.exit('site %s has %d FPGA rows; recal mode requires 16'%(site,mrow))
+    #    copy_rows = list(range(16))
+    #else:
+    copy_rows = sorted(int(os.path.basename(rowdir)[3:]) for rowdir in glob(os.path.join(recal_source,'row[0-9][0-9]')) if os.path.isdir(rowdir))
+    if not copy_rows:
+        sys.exit('no rowNN directories found in %s'%recal_source)
+    invalid_rows = [row for row in copy_rows if row >= mrow]
+    if invalid_rows:
+        sys.exit('site %s has no FPGA mapping for physical rows: %s'%(site,invalid_rows))
 
     ymd = datetime.strptime(match.group(1), '%Y%m%d').strftime('%y%m%d')
     odir = f'{site}_{mode}_{ymd}'
