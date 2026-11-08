@@ -63,7 +63,7 @@ flux_sun_610MHz = 7.0e5 # Jy
 # MobileMark LPDA;  Ehwhm, Hhwhm= (40, 35) for MED
 Antenna = {
     "MMLPDA"    : {"Gain": 6., "Ehwhm": 30., "Hhwhm": 60.},
-    "ASIAALPDA" : {"Gain": 7., "Ehwhm": 30., "Hhwhm": 45.},
+    "ASIAALPDA" : {"Gain": 8., "Ehwhm": 30., "Hhwhm": 45.},
     "MED"       : {"Gain": 8., "Ehwhm": 40., "Hhwhm": 35.}
 }
 
@@ -170,14 +170,20 @@ while (inp):
             print("unknown antenna type: [%s]. Ignore"%ant_)
     elif (k == '--copy'):
         cdir_path = inp.pop(0)
+    elif (k == '--no-bitmap'):
+        no_bitmap = True
     elif (k.startswith('_')):
         sys.exit('unknown option: %s'%k)
     else:
         files.append(k)
 
 
+G0 = Antenna[antenna_type]['Gain']     #7.0 # dB
+## beam width
+EW_hwhm   = Antenna[antenna_type]['Ehwhm'] # E-W beam half width (deg) at half max
+NS_hwhm   = Antenna[antenna_type]['Hhwhm'] # N-S beam half width (deg) at half max
 
-printf(f'antenna gain {G0} dBi, half-width hallf maximum = {EW_hwhm} deg (E-W), {NS_hwhm} deg (N-S)')
+print(f'antenna gain {G0} dBi, half-width hallf maximum = {EW_hwhm} deg (E-W), {NS_hwhm} deg (N-S)')
 print(f'reference antenna: {RefAntID}')
 
 if (chlim is None):
@@ -198,6 +204,7 @@ files.sort()
 print(files)
 nFile = len(files)
 epochs = filesEpoch(files, hdver=2, meta=64)
+print('epochs:', epochs)
 
 # extract timestamp from file name; files for different ring buffers should have identical timestamp
 stamps = []
@@ -215,6 +222,7 @@ if (nStamp == 1):
     print(stamps, stamp_name)
     epoch0 = epochs[0]
     dt0 = Time(epoch0, format='unix').to_datetime()
+    print('ep0', epoch0, 'dt0', dt0)
 else:
     sys.exit('more than one timestamp found. abort!')
 
@@ -228,7 +236,8 @@ call('mkdir -p %s'%cdir, shell=True)
 station_config = GetStationConfig(sitename)
 print(f'Station Config for {sitename}: ', station_config)
 if station_config:
-    sitename = station_config["Name"]
+    #sitename = station_config["Name"]
+    sitename = station_config["Code"]
     theta_rot_deg = station_config["Rotate_deg"]
     # overwrite the arguments
     #nAnt    = station_config["NAntPerRow"]
@@ -255,7 +264,7 @@ if (not os.path.isdir(cdir_path)):
 
 
 ## added (2026-03-26, Sujin)
-if fmin == 400:
+if flim[0] == 400:
     start_off = -2  # for bf64, 400-600MHz is order=2
 
 

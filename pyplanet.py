@@ -97,6 +97,7 @@ def obsBody(body, site='taroge4', time=datetime.utcnow(), epoch='2000', DB=DB, r
 
         ## define observer
         obs = obsSite(site)
+        print('in obsBody, site:', site, 'obs:', obs)
         obs.date        = time      # this is variable now
         # can omit epoch if using J2000 (is the default)
         obs.epoch       = epoch
@@ -479,6 +480,7 @@ def getAzEl(dtarr, body='sun', site='fushan6'):
         az, el:: array in radian, shape=(nTime,)
     '''
 
+    print('in getAzEl: dtarr', dtarr)
     b, obs = obsBody(body, time=dtarr[0], site=site, retOBS=True, DB=DB)
 
     az = []
