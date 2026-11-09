@@ -202,7 +202,7 @@ if (read_raw):
         #mdict0 = metaRead(fh0)
         #print(mdict0)
         mdict0 = readRBH2(files[i])
-        data0, order0 = loadNode(fh0, 0, nPack, nFPGA=nFPGA, isbf32=True, verbose=1, no_bitmap=no_bitmap, get_order=True)
+        data0, order0 = loadNode(fh0, 0, nPack, nFPGA=nFPGA, isbf32=True, verbose=1, no_bitmap=no_bitmap, get_order=True, MSB=True)
         start_chan = nChan * order0
         wfreq = np.arange(start_chan, start_chan+nChan)
         print('order:', order0, data0.shape, 'time', time.time()-t0, 'sec')

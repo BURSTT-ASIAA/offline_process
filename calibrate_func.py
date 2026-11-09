@@ -144,7 +144,7 @@ def makeCov(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool=
     return Cov, norm
 
 
-def makeCov2(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool=1, chanBlock=8):
+def makeCov2(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool=1, chanBlock=32, dtype=np.complex64):
     '''
     generate covariance matrix from the waterfall spectra
     input:
@@ -156,44 +156,31 @@ def makeCov2(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool
         (note: choose none or one of the above, not both.)
         ant_flag: a list of antennas that should be flagged
         bandpass: whether to normalize the bandpass
-        nPool: number of channel partitions (kept for compatibility)
-        chanBlock: maximum number of channels in each matrix-multiply block
+        nPool: number of channel partitions (the diagonal is averaged within each partition)
+        chanBlock: number of channels processed together
+        dtype: precision of the matrix multiply (complex64 is ~2x faster than complex128)
 
     output:
         Cov, shape: (nAnt, nAnt, nChan)
         norm, shape: (nAnt, nChan)
+
+    note:
+        each channel block is copied to a contiguous (chan, ant, frame) array so that
+        the matrix multiply goes to BLAS; strided or masked arrays fall back to a slow loop
     '''
     print('in makeCov2, channel block:', chanBlock)
 
-    ftdata = np.ma.asarray(ftdata)
-    (nAnt, nFrame, nChan) = ftdata.shape
-
-    #ftdata -= np.ma.median(ftdata, axis=1, keepdims=True)
-    mr = np.ma.median(ftdata.real, axis=1, keepdims=True)
-    mi = np.ma.median(ftdata.imag, axis=1, keepdims=True)
-    nftdata = ftdata - (mr + 1j*mi)
-    norm2 = np.ma.abs(nftdata)
-    norm = norm2.mean(axis=1)
-    avg_norm = norm.mean(axis=0, keepdims=True)
-
+    data = np.ma.getdata(ftdata)
+    mask = np.ma.getmaskarray(ftdata)
+    (nAnt, nFrame, nChan) = data.shape
 
     if (coeff):
         bandpass = True
         # when using coeff, the output norm is approximated by the bandpass version
-
     if (bandpass):
         scale = True
         # norm contains bandpass and antenna relative gain
-    else:
-        norm /= avg_norm
-        # norm contains only antenna relative gain
-    
-    if (scale):
-        nftdata /= norm.reshape((nAnt, 1, nChan))
 
-    cftdata = ftdata / np.ma.abs(ftdata)    # for coefficient
-
-    Cov = np.zeros((nAnt, nAnt, nChan), dtype=complex)
     if nPool < 1:
         raise ValueError('nPool must be at least 1')
     if chanBlock < 1:
@@ -202,7 +189,9 @@ def makeCov2(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool
     boundaries = np.linspace(0, nChan, nPool+1, dtype=int)
     ant_index = np.arange(nAnt)
 
-    covdata = cftdata if coeff else nftdata
+    Cov = np.zeros((nAnt, nAnt, nChan), dtype=complex)
+    norm = np.ma.masked_all((nAnt, nChan))
+
     for partition in range(nPool):
         part_start = boundaries[partition]
         part_stop = boundaries[partition+1]
@@ -211,17 +200,48 @@ def makeCov2(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool
 
         for i1 in range(part_start, part_stop, chanBlock):
             i2 = min(i1+chanBlock, part_stop)
-            data_block = covdata[:,:,i1:i2]
-            valid = ~np.ma.getmaskarray(data_block)
-            values = np.ma.filled(data_block, 0).transpose(2,0,1)
-            valid = valid.transpose(2,0,1)
-            diagonal_sum += (np.abs(values)**2).sum(axis=(0,2))
-            diagonal_count += valid.sum(axis=(0,2))
-            valid = valid.astype(np.float32)
+            # contiguous copies, shape (nb, nAnt, nFrame)
+            x = np.ascontiguousarray(data[:,:,i1:i2].transpose(2,0,1))
+            valid = ~np.ascontiguousarray(mask[:,:,i1:i2].transpose(2,0,1))
+            partial = not (valid.all(axis=2) | ~valid.any(axis=2)).all()
 
-            sums = values @ values.conj().transpose(0,2,1)
-            counts = valid @ valid.transpose(0,2,1)
-            cov_block = np.divide(sums, counts, out=np.zeros_like(sums), where=counts > 0)
+            # median subtraction and normalization (masked samples excluded)
+            if (partial):
+                xm = np.ma.array(x, mask=~valid)
+                med = np.ma.median(xm.real, axis=2, keepdims=True).filled(0.) \
+                    + 1j*np.ma.median(xm.imag, axis=2, keepdims=True).filled(0.)
+            else:   # each (chan, ant) is either fully valid or fully masked
+                med = np.median(x.real, axis=2, keepdims=True) + 1j*np.median(x.imag, axis=2, keepdims=True)
+            nx = x - med
+            cnt = valid.sum(axis=2)
+            nrm = np.where(valid, np.abs(nx), 0.).sum(axis=2)
+            nrm = np.ma.array(nrm/np.maximum(cnt,1), mask=(cnt==0))    # (nb, nAnt)
+            if (not bandpass):
+                nrm /= nrm.mean(axis=1, keepdims=True)
+                # norm contains only antenna relative gain
+            norm[:,i1:i2] = nrm.T
+
+            if (coeff):
+                ax = np.abs(x)
+                valid &= (ax > 0)
+                u = np.divide(x, ax, out=np.zeros(x.shape, dtype=dtype), where=valid)
+            else:
+                if (scale):
+                    s = nrm.filled(0.)[:,:,None]
+                    valid &= (s > 0)    # zero norm is masked, as in the masked-array version
+                    nx = np.divide(nx, s, out=np.zeros_like(nx), where=valid)
+                u = np.where(valid, nx, 0.).astype(dtype)
+
+            diagonal_sum += (np.abs(u)**2).sum(axis=(0,2))
+            diagonal_count += valid.sum(axis=(0,2))
+
+            sums = np.matmul(u, u.conj().transpose(0,2,1))
+            if (valid.all()):
+                cov_block = sums / nFrame
+            else:
+                vf = valid.astype(np.float32)
+                counts = np.matmul(vf, vf.transpose(0,2,1))
+                cov_block = np.divide(sums, counts, out=np.zeros_like(sums), where=counts > 0)
             Cov[:,:,i1:i2] = cov_block.transpose(1,2,0)
 
         diagonal = np.divide(diagonal_sum, diagonal_count,
@@ -232,10 +252,9 @@ def makeCov2(ftdata, scale=False, coeff=True, ant_flag=[], bandpass=False, nPool
         Cov[ai] = 0.j
         Cov[:,ai] = 0.j
         norm[ai] = 0.
-        norm.mask[ai] = True
+        norm[ai] = np.ma.masked
 
     return Cov, norm
-
 
 def streamFilter(data, rfi_mask):
     '''

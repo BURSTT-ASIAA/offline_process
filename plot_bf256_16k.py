@@ -147,6 +147,7 @@ nRow2 = len(rows)
 
 arrInts  = []
 arrNInts = []
+arrNInt2s = []
 freqs    = []
 tsecs    = []
 for j in range(nDir):
@@ -190,6 +191,7 @@ for j in range(nDir):
             if (not read_raw):
                 arrInt = tmp
                 arrNInt = getData(ofile, 'norm.intensity')
+                arrNInt2 = getData(ofile, 'norm.intensity.icb')
                 winSec = getData(ofile, 'winSec')
                 attrs = getAttrs(ofile)
                 epoch0 = attrs.get('unix_utc_open')
@@ -237,10 +239,19 @@ for j in range(nDir):
 
         ## bandpass normalization
         arrNInt = arrInt / np.median(arrInt,axis=0)
+        ## incoherent beam as bandpass norm (for central beams row5,6,7,8,9)
+        arrICB = np.median(arrInt[:,:,5:10,:], axis=(0,2,3), keepdims=True)
+        arrNInt2 = arrInt / arrICB
         adoneh5(ofile, arrNInt, 'norm.intensity')
+        adoneh5(ofile, arrNInt2, 'norm.intensity.icb')
+
+    if (arrNInt2 is None):
+        arrICB = np.median(arrInt[:,:,5:10,:], axis=(0,2,3), keepdims=True)
+        arrNInt2 = arrInt / arrICB
 
     arrInts.append(arrInt)
     arrNInts.append(arrNInt)
+    arrNInt2s.append(arrNInt2)
     print(j, arrInt.shape, arrNInt.shape)
     tsecs.append(winSec)
 
@@ -281,6 +292,7 @@ sub2 = tmp[1::2]
 if (combine):
     freq1 = np.concatenate(freqs, axis=0)
     arrNInt = np.concatenate(arrNInts, axis=1)  # combine along freq
+    arrNInt2 = np.concatenate(arrNInt2s, axis=1)  # combine along freq
     if (subicb):
         print('subtracting incoherent beam')
         icb = arrNInt.mean(axis=(2,3), keepdims=True)
@@ -291,6 +303,7 @@ if (combine):
         chlim[1] = len(freq1)
     #mapNInt = arrNInt[:,chlim[0]:chlim[1]].mean(axis=1)
     mapNInt = np.median(arrNInt[:,chlim[0]:chlim[1]], axis=1)
+    mapNInt2 = np.median(arrNInt2[:,chlim[0]:chlim[1]], axis=1)
 
     if (zlim is None):
         vmin = arrNInt.min()
@@ -319,15 +332,20 @@ if (combine):
         for ai in range(nAnt):
             ax = sub[nRow2-1-jj, ai]
             ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
+            #ax.pcolormesh(X,Y,arrNInt2[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
 
             prof = mapNInt[:,j,ai]
+            prof2 = mapNInt2[:,j,ai]
             ax2 = sub2[nRow2-1-jj, ai]
-            ax2.plot(winDT, prof)
+            ax2.plot(winDT, prof, color='C%d'%(ai%10))
+            ax2.plot(winDT, prof2, color='C%d'%(ai%10), ls='--')
             ax2.set_ylim(vmin, vmax)
             ax2.text(0.05, 0.55, '(%02d,%02d)\nmax:%.3f'%(ai,j,prof.max()), transform=ax2.transAxes)
+            ax2.text(0.05, 0.65, '(%02d,%02d)\nmax:%.3f'%(ai,j,prof2.max()), transform=ax2.transAxes)
             ax2.grid(axis='both')
 
-            axp.plot(winDT, prof, label='beam%d'%ai)
+            axp.plot(winDT, prof, color='C%d'%(ai%10), label='beam%d'%ai)
+            axp.plot(winDT, prof2, color='C%d'%(ai%10), ls='--')
             axp.set_ylim(vmin, vmax)
             axp.grid(True, axis='y', which='both')
 
@@ -361,8 +379,10 @@ else:
                 ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
 
                 prof = arrNInt[:,:,j,ai].mean(axis=1) # avg in freq, each node separately
+                prof2 = arrNInt2[:,:,j,ai].mean(axis=1) # avg in freq, each node separately
                 ax2 = sub2[nRow-1-j, ai]
-                ax2.plot(winDT, prof)
+                ax2.plot(winDT, prof, color='C%d'%(ai%10))
+                ax2.plot(winDT, prof2, color='C%d'%(ai%10), ls='--')
                 ax2.set_ylim(vmin, vmax)
 
 fig.autofmt_xdate()

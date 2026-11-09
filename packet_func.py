@@ -448,7 +448,7 @@ def loadNode(fh, pack0, npack, bpp=8192, ppf=1, order_off=0, nAnt=16, grp=2, hdl
     out_order = np.median(order0.flatten()).astype(int)
 
     if (MSB):
-        antSpec += 0.5
+        antSpec += (0.5+0.5j)
 
     if (get_order):
         return antSpec, out_order

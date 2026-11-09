@@ -262,7 +262,7 @@ for ll in range(nLoop):
                 tsec.append(dt)
             fh = open(fbin, 'rb')
             # spec0.shape = (nFPGA, nFrame, nBeam, nChan2)
-            spec0, order0 = loadNode(fh, p0, nPack, nFPGA=nFPGA, isbf32=True, order_off=order_off, verbose=1, no_bitmap=no_bitmap, get_order=True)
+            spec0, order0 = loadNode(fh, p0, nPack, nFPGA=nFPGA, isbf32=True, order_off=order_off, verbose=1, no_bitmap=no_bitmap, get_order=True, MSB=True)
             fh.close()
             if (order0 < 0 or order0 >= nNode):
                 sys.exit('unexpected packet order %d in %s'%(order0, fbin))
@@ -472,32 +472,43 @@ for ll in range(nLoop):
     rel_ampld = savN3 / med_ampld.reshape((1,-1))
     med_rel_ampld = np.ma.median(rel_ampld[:,chlim[0]:chlim[1]], axis=1)
 
-    all_coeff = np.ma.masked_all((nRow*nBl, nChan3), dtype=complex)
     all_SEFD = np.ma.masked_all((nAnt3, nChan3))
     flux = f410 + (freq-410.)*(f610-f410)/200.
     flux *= att0[0]
     flagged = set(ant_flag)
 
+    # all cross-correlations: upper triangle of the full (nAnt3, nAnt3) matrix,
+    # rebuilt from the eigenmodes; baseline k is between coeff_ant[k,0] < coeff_ant[k,1]
+    coeff_ant = np.array(np.triu_indices(nAnt3, 1)).T
+    bl_index = -np.ones((nAnt3,nAnt3), dtype=int)
+    bl_index[coeff_ant[:,0],coeff_ant[:,1]] = np.arange(len(coeff_ant))
+    all_coeff = np.zeros((len(coeff_ant), nChan3), dtype=complex)
+    for c1 in range(0, nChan3, 64):
+        c2 = min(c1+64, nChan3)
+        vec = savV3[c1:c2]
+        cov = (vec*savW3[c1:c2,None,:]) @ vec.conj().transpose(0,2,1)
+        all_coeff[:,c1:c2] = cov[:,coeff_ant[:,0],coeff_ant[:,1]].T
+    # mask flagged antennas and dead inputs or channels (zero correlation)
+    bl_flag = np.isin(coeff_ant, list(flagged)).any(axis=1)
+    all_coeff = np.ma.array(all_coeff, mask=(bl_flag[:,None] | (all_coeff == 0)))
+    row_ai, row_aj = np.triu_indices(nAnt, 1)
+
     for row in range(nRow):
         first = row*nAnt
         last = first+nAnt
-        row_vec = savV3[:,first:last,:]
-        row_cov = np.einsum('cik,ck,cjk->cij', row_vec, savW3, row_vec.conjugate(), optimize=True)
-        coeff_row = np.ma.masked_all((nBl,nChan3), dtype=complex)
+        coeff_row = all_coeff[bl_index[first+row_ai,first+row_aj]]
         B = np.zeros((nBl,nAnt))
         bidx = -1
         for ai in range(nAnt-1):
             for aj in range(ai+1,nAnt):
                 bidx += 1
-                coeff_row[bidx] = row_cov[:,ai,aj]
                 if (first+ai not in flagged and first+aj not in flagged):
                     B[bidx,ai] = 0.5
                     B[bidx,aj] = 0.5
-        all_coeff[row*nBl:(row+1)*nBl] = coeff_row
 
         coeff_abs = np.ma.abs(coeff_row)
         sefd_bl = flux.reshape((1,nChan3))/coeff_abs*(1.-coeff_abs)
-        sefd_bl = np.ma.masked_where((coeff_abs <= 0.) | (coeff_abs >= 1.), sefd_bl)
+        sefd_bl = np.ma.masked_where((coeff_abs <= 0.) | (coeff_abs >= 1.-1e-6), sefd_bl)
         D = np.ma.log10(sefd_bl).filled(0.)
         M = np.dot(pinv(B), D)
         row_mask = np.array([first+ai in flagged for ai in range(nAnt)]).reshape((-1,1))
@@ -512,7 +523,8 @@ for ll in range(nLoop):
         med_SEFD = np.ma.median(all_SEFD[row_slice], axis=0, keepdims=True)
         del_SEFD[row_slice] = all_SEFD[row_slice] / med_SEFD
         wt_SEFD[row_slice] = 1./np.ma.median(del_SEFD[row_slice,chlim[0]:chlim[1]], axis=1)
-    adoneh5(fout, all_coeff, 'coeff')
+    adoneh5(fout, all_coeff, 'coeff')       # shape (nAnt3*(nAnt3-1)/2, nChan)
+    adoneh5(fout, coeff_ant, 'coeff_ant')   # shape (nBaseline, 2), antenna pair of each coeff row
     adoneh5(fout, all_SEFD, 'SEFD400')
     adoneh5(fout, wt_SEFD, 'wt_SEFD')
 
@@ -521,7 +533,7 @@ for ll in range(nLoop):
         last = first+nAnt
         rowdir = os.path.join(cdir, 'row%02d'%row)
         os.makedirs(rowdir, exist_ok=True)
-        row_coeff = all_coeff[row*nBl:(row+1)*nBl]
+        row_coeff = all_coeff[bl_index[first+row_ai,first+row_aj]]
         row_SEFD = all_SEFD[first:last]
         row_wt = wt_SEFD[first:last]
         row_med_SEFD = np.ma.median(row_SEFD[:,chlim[0]:chlim[1]], axis=1)
