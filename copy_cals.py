@@ -57,14 +57,15 @@ if (site not in site_ips):
 ips = site_ips[site]
 mrow = len(ips) # max rows defined in fpga_alias
 
-if (site.lower() == 'ltn' or site.lower() == 'grn'):
-    rprefix = 'recal64'
-else: # fus
-    rprefix = 'recal256'
+#if (site.lower() == 'ltn' or site.lower() == 'grn'):
+#    rprefix = 'recal64'
+#else: # fus
+#    rprefix = 'recal256'
+rprefix = 'recal'
 
 if (mode in ('recal', '1stcal')):
     source_prefix = rprefix if mode == 'recal' else '1stcal'
-    source_pattern = r'%s_(\d{8})_(\d{6})Z\.eigen\.h5\.check'%source_prefix
+    source_pattern = r'%s\d{0,4}_(\d{8})_(\d{6})Z\.eigen\.h5\.check'%source_prefix
     if (recal_source is None):
         current_dir = os.path.abspath('.')
         current_name = os.path.basename(current_dir)
@@ -79,6 +80,7 @@ if (mode in ('recal', '1stcal')):
     recal_source = os.path.abspath(recal_source)
     source_name = os.path.basename(recal_source.rstrip(os.sep))
     match = re.fullmatch(source_pattern, source_name)
+    print('match:', match)
     if (not os.path.isdir(recal_source) or match is None):
         sys.exit('invalid %s source directory: %s'%(mode,recal_source))
 

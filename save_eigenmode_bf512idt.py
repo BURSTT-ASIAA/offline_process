@@ -549,6 +549,7 @@ for ll in range(nLoop):
             if mode < nFlag:
                 continue
             sub[1].plot(freq, sigma_clip(10.*np.log10(savW3[:,mode]), sigma=10))
+        sub[1].set_ylim(-25, None)
         sub[1].set_ylabel('power (dB)')
         for ai in range(first,last):
             if ai not in flagged:

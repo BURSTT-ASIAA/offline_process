@@ -1084,7 +1084,7 @@ def readRBH2(filename, usemmap=True):
     for new ring buffer header by Chih-Yi
     '''
     if (usemmap):
-        fhuge = np.memmap(filename, '<u1')
+        fhuge = np.memmap(filename, '<u1', mode='r')
     else:
         filename.seek(0)
         fhuge = filename.read(64)

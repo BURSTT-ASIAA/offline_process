@@ -77,6 +77,7 @@ nBeam2 = None
 man_nAnt = 0
 man_nRow = 0
 row_mask = []   # rows excluded from the 2nd (NS) beamform, e.g. [14, 15] for the real-time BF256
+NS_shift = 0.   # 2nd-beamform beam0 shift (in beams) applied to odd EW columns only
 
 # beam spacing stretch factors
 stretch1 = 1.0
@@ -137,6 +138,13 @@ options are:
     --row_mask 'r0 r1 ...'
                         # rows excluded from the 2nd (NS) beamform, as -m in write_2nd_matrix_256
                         # (e.g. '14 15' for the current Fushan BF256; default: none)
+    --ns_shift dB       # shift the 2nd (NS) beam angles of odd EW columns by dB beams (fractional OK):
+                        # even columns use <beam0_BFM2d>, odd columns use <beam0_BFM2d>+dB
+                        # (column = EW beam index in the output beam_id = row*nBeam1 + col;
+                        #  with --angle, the shift is lamb0/s_ns/nRow*dB*st2 added in sin(theta))
+                        # (default: 0, no shift)
+    --bf512             # BF512 preset: --n1 32 --st1 0.57 --ns_shift 0.5
+                        # (later explicit options override; earlier ones are overridden)
     --off deg            # additional offset angles of the 1D beams in deg
                         # (default: {theta_off_deg_1d:.1f} deg)
     --site SITE         # predefined site name (e.g., fus, ltn)
@@ -258,6 +266,12 @@ while(inp):
         man_nRow = int(inp.pop(0))
     elif (k == '--row_mask'):
         row_mask = [int(x) for x in inp.pop(0).split()]
+    elif (k == '--ns_shift'):
+        NS_shift = float(inp.pop(0))
+    elif (k == '--bf512'):
+        nBeam1 = 32
+        stretch1 = 0.57
+        NS_shift = 0.5
     elif (k == '--st1'):
         stretch1 = float(inp.pop(0))
     elif (k == '--st2'):
@@ -372,10 +386,15 @@ if theta_off_deg_1d != 0:
     tmp += theta_off_deg_1d
     sin_theta_m1_ori = np.sin(tmp/180.*np.pi)
 
+# shifted 2nd-beamform angles for odd EW columns (shift in units of the NS beam spacing)
+sin_theta_m2_shift = sin_theta_m2_ori + lamb0/sep2/nRow*NS_shift*stretch2
+
 beam_angle_1d_deg_ori = np.arcsin(sin_theta_m1_ori)*180/np.pi
 beam_angle_2d_deg_ori = np.arcsin(sin_theta_m2_ori)*180/np.pi
 print('BFM1 angles (deg):', beam_angle_1d_deg_ori)
 print('BFM2 angles (deg):', beam_angle_2d_deg_ori)
+if (NS_shift != 0):
+    print('BFM2 angles, odd columns, shift %+.3f beam (deg):' % NS_shift, np.arcsin(sin_theta_m2_shift)*180/np.pi)
 
 
 # apply calibration using Sun
@@ -444,20 +463,27 @@ if (sign == -1):
 #sin_theta_m = sin_theta_m2_ori * (sep2/0.5)
 sin_theta_m = sin_theta_m2_ori
 
-BFM2 = np.zeros((nBeam2,nRow,nChan), dtype=complex)
+def make_BFM2(sin_theta_m):
+    BTau_s = pos0[:,0,1].reshape((1,nRow,1))*sin_theta_m.reshape((nBeam2,1,1))/2.998e8
+    B = np.exp(-1.j*2.*np.pi*BTau_s*freq_Hz.reshape((1,1,nChan)))
+    #B *= scale
+    B /= nRow
+    B = B.transpose((2,1,0))  # (nChan, nRow, nBeam2)
+    if (len(row_mask) > 0):
+        B[:,row_mask,:] = 0.     # same as the real-time matrix: masked rows zeroed, no renormalization
+    return B
 
-BTau_s = pos0[:,0,1].reshape((1,nRow,1))*sin_theta_m.reshape((nBeam2,1,1))/2.998e8
-BFM2 = np.exp(-1.j*2.*np.pi*BTau_s*freq_Hz.reshape((1,1,nChan)))
-#BFM2 *= scale
-BFM2 /= nRow
-BFM2 = BFM2.transpose((2,1,0))  # (nChan, nRow, nBeam2)
 if (len(row_mask) > 0):
     if (max(row_mask) >= nRow or min(row_mask) < 0):
         sys.exit('Check --row_mask: rows must be within 0..%d' % (nRow-1))
-    BFM2[:,row_mask,:] = 0.     # same as the real-time matrix: masked rows zeroed, no renormalization
     print('2nd beamform excludes rows:', row_mask)
+BFM2 = make_BFM2(sin_theta_m)                   # even EW columns
+BFM2s = make_BFM2(sin_theta_m2_shift)           # odd EW columns (identical if NS_shift == 0)
+# odd output columns (after the final flip of the EW axis) -> indices in the un-flipped outVolt
+odd_cols = np.arange(1, nBeam1, 2)
+odd_j = nBeam1 - 1 - odd_cols
 
-del sin_theta_m, BTau_s
+del sin_theta_m
 
 
 # calculate beam pattern
@@ -585,6 +611,8 @@ for ch in range(nChan):
     for t in range(nSky):
         #outVolt[:,:,t,ch] = tmp[:,:,t] # 1D only
         outVolt[:,:,t,ch] = np.dot(BFM2[ch].T, tmp[:,:,t]) # 2D
+        if (NS_shift != 0):
+            outVolt[:,odd_j,t,ch] = np.dot(BFM2s[ch].T, tmp[:,odd_j,t]) # odd columns, shifted NS beams
 
 outInt = np.ma.array((np.abs(outVolt)**2).mean(axis=3), mask=False)
 outInt = np.flip(outInt, axis=1)
@@ -654,6 +682,8 @@ if 't_rec_end' in globals():
 OutFilePrefix = 'times_%s_%s_%s_%dx%d_b0_%.2f_%.2f_utc_%d' % (targetname, int(obsdate), sitename, nBeam1, nBeam2, beam01, beam02, UTCOffset_hr)
 if (len(row_mask) > 0):
     OutFilePrefix += '_m' + '-'.join('%d' % r for r in row_mask)
+if (NS_shift != 0):
+    OutFilePrefix += '_nss%.2f' % NS_shift
 
 f_out_txt = '%s.txt' % (OutFilePrefix)
 with open(f_out_txt, 'w') as f:
@@ -813,7 +843,8 @@ if (saveNPZ):
             'NShwhm':Hhwhm,
             'EWcent':Ecent,
             'NScent':Ncent,
-            'row_mask':row_mask
+            'row_mask':row_mask,
+            'NS_shift':NS_shift
             }
 
     np.savez(f_out_npz,
@@ -880,7 +911,8 @@ if 'angle' in locals():
     
 
 title2 = (
-    rf"beam0: (1st={beam01:.2f}$^\circ$, 2nd={beam02:.2f}$^\circ$), " 
+    rf"beam0: (1st={beam01:.2f}$^\circ$, 2nd={beam02:.2f}$^\circ$"
+    + (rf", odd cols 2nd+{NS_shift:.2f}" if NS_shift != 0 else "") + "), "
     rf"$\theta_{{\mathrm{{off,EW}}}} = {theta_off_deg_1d:.2f}^\circ$, " 
     rf"antenna HWHM = ${Ehwhm}^\circ \times {Hhwhm}^\circ$"
 )
