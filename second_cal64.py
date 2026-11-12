@@ -21,6 +21,71 @@ def atten(x, hwhm):
     sig = hwhm/np.sqrt(2.*np.log(2.))
     return np.exp(-x**2/2./sig**2)
 
+def rfi_phase_fix(LV, freq, aref, method='interp', thr=0.75, nsig=5., win=33, pad=32, niter=4):
+    '''
+    replace the leading-mode phase in channels where the leading mode is not the calibrator
+    LV: tauGeo-corrected leading eigenvector referenced to aref, shape (nChan, nAnt)
+    model per antenna: delay + constant phase (fitted on clean channels) x residual phase
+    smoothed over win channels (and over 4 x win, which also catches broad RFI bands that the
+    short window follows); a channel is flagged when the coherence of all antennas with either
+    model is below thr x median, or below median - nsig x sigma (sigma from the MAD of the clean
+    channels, at least 0.01; this matters for high-SNR solutions where clean channels are ~1).
+    method: 'interp' fills flagged channels with the delay model x residual phase averaged
+            over the clean channels within win (4 x win, then linear interpolation, for wider
+            gaps); 'delay' with the delay model only.
+    amplitude is interpolated from the clean channels in both cases.
+    return: fixed LV, rfi channel mask (True = replaced), coherence per channel, delay (ns)
+    (same function as in save_eigenmode.py)
+    '''
+    V = np.ma.filled(LV, 0.).astype(complex)
+    nCh, nA = V.shape
+    amp = np.abs(V)
+    ok = amp.sum(axis=0) > 0                    # antennas with a solution
+    u = np.where(amp > 0, V/np.maximum(amp, 1e-30), 0.)
+    df = freq[1]-freq[0]
+    good = np.ones(nCh, dtype=bool)
+    kerns = [np.ones(min(w, nCh)) for w in (win, 4*win)]
+    for it in range(niter):
+        FT = np.fft.fftshift(np.fft.fft(u*good.reshape((-1,1)), n=int(nCh*pad), axis=0), axes=0)
+        lag = np.abs(FT).argmax(axis=0) - int(pad*nCh/2)
+        tau_ns = lag/(nCh*pad*df)*1e3
+        mod = np.exp(2j*np.pi*freq.reshape((-1,1))*1e-3*tau_ns.reshape((1,-1)))
+        ph0 = np.angle(np.sum((u*mod.conj())[good], axis=0))
+        mod *= np.exp(1j*ph0).reshape((1,-1))
+        res = u*mod.conj()*good.reshape((-1,1))
+        new_good = np.ones(nCh, dtype=bool)
+        for k, kern in enumerate(kerns):
+            sm = np.array([np.convolve(res[:,ai], kern, 'same') for ai in range(nA)]).T
+            sm /= np.maximum(np.abs(sm), 1e-30)
+            mk = np.abs(np.sum((u*np.conj(mod*sm))[:,ok], axis=1))/max(ok.sum(), 1)
+            med = np.median(mk[good])
+            sig = max(1.4826*np.median(np.abs(mk[good]-med)), 0.01)
+            new_good &= mk > max(thr*med, med-nsig*sig)
+            if (k == 0):
+                match = mk      # short-window coherence is returned
+        good = new_good
+    bad = ~good
+    if (method == 'none' or not bad.any()):
+        return LV, bad, match, tau_ns
+    ich = np.arange(nCh)
+    fix = np.ma.getdata(LV).astype(complex)     # unused inputs keep their values
+    for ai in np.where(ok)[0]:
+        a = np.interp(ich[bad], ich[good], amp[good,ai])
+        if (method == 'interp'):
+            r = u[:,ai]*mod[:,ai].conj()*good
+            rg = r[good]
+            ri = np.interp(ich[bad], ich[good], rg.real) + 1j*np.interp(ich[bad], ich[good], rg.imag)
+            for kern in kerns[::-1]:    # clean-channel average within win where available
+                rs = np.convolve(r, kern, 'same')[bad]
+                ri = np.where(np.abs(rs) > 0.5, rs, ri)
+            ri /= np.maximum(np.abs(ri), 1e-30)
+        else:
+            ri = 1.
+        fix[bad,ai] = a*mod[bad,ai]*ri
+    ref = np.exp(1j*np.angle(fix[bad,aref]))   # keep the aref reference in the replaced channels
+    fix[np.ix_(bad,ok)] /= ref.reshape((-1,1))
+    return np.ma.array(fix, mask=np.ma.getmaskarray(LV)), bad, match, tau_ns
+
 
 inp = sys.argv[0:]
 pg  = inp.pop(0)
@@ -54,6 +119,10 @@ read_raw = True
 #flim = [400, 800]
 flim = [300, 700]
 ant_flag = []
+## phase correction over RFI dominated channels
+rfi_fix = 'interp'      # 'interp', 'delay' or 'none'
+rfi_thr = 0.75          # flag channels whose model coherence < rfi_thr x median
+rfi_win = 33            # channels used to smooth the residual phase
 chlim = None
 
 ## arbitrary number
@@ -123,7 +192,17 @@ options are:
 
     --copy DIR  # change the copying destination for 2nd_cal results
                 # default: site-dependent
-''' % (pg, nFrame, separation_m, theta_rot_deg, sitename, src, flux_sun_410MHz, flux_sun_610MHz, G0, EW_hwhm, NS_hwhm, antenna_type)
+    --rfi-fix METHOD
+                # phase correction in the channels where the leading mode is not
+                # the calibrator (RFI): 'interp' (delay model x residual phase
+                # interpolated from clean channels), 'delay' (delay model only),
+                # or 'none'. The leading-mode solution is kept as
+                # 'tau_i_lead' and 'phiCorr_lead' in solution_2ndCal.npz
+                # default: %s
+    --rfi-thr THR   # flag channels whose coherence with the model is below
+                    # THR x median; default: %.2f
+    --rfi-win NCH   # channels used to smooth the residual phase; default: %d
+''' % (pg, nFrame, separation_m, theta_rot_deg, sitename, src, flux_sun_410MHz, flux_sun_610MHz, G0, EW_hwhm, NS_hwhm, antenna_type, rfi_fix, rfi_thr, rfi_win)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -170,6 +249,14 @@ while (inp):
             print("unknown antenna type: [%s]. Ignore"%ant_)
     elif (k == '--copy'):
         cdir_path = inp.pop(0)
+    elif (k == '--rfi-fix'):
+        rfi_fix = inp.pop(0)
+        if rfi_fix not in ('interp', 'delay', 'none'):
+            sys.exit('--rfi-fix must be interp, delay or none')
+    elif (k == '--rfi-thr'):
+        rfi_thr = float(inp.pop(0))
+    elif (k == '--rfi-win'):
+        rfi_win = int(inp.pop(0))
     elif (k == '--no-bitmap'):
         no_bitmap = True
     elif (k.startswith('_')):
@@ -626,9 +713,16 @@ print('geometric delay  (ns):', ns_tau)
 VrefTau = Vref1p * np.exp(-2j*np.pi*ns_tau.reshape((1,-1))*freq_MHz.reshape((-1,1))*1e-3)
 nChan1 = ch2-ch1
 VrefTau = VrefTau[ch1:ch2]
+# replace the phase in RFI dominated channels; keep the leading-mode solution
+VrefTau_lead = VrefTau.copy()
+VrefTau, rfi_chan, rfi_match, rfi_tau = rfi_phase_fix(VrefTau, freq_MHz[ch1:ch2], RefAntID, method=rfi_fix,
+        thr=rfi_thr, win=rfi_win, pad=pad)
+print('RFI phase fix (%s): %d channels'%(rfi_fix, rfi_chan.sum()))
 
 ofile = '%s/eigenvector_TauGeo_correct.npy'%cdir
 np.save(ofile, VrefTau.data)
+ofile = '%s/eigenvector_TauGeo_correct_lead.npy'%cdir
+np.save(ofile, VrefTau_lead.data)
 
 ## plot the normalization and eigenvector for each row
 fig, s2d = plt.subplots(2,2,figsize=(10,8), sharex=True, sharey=True)
@@ -644,9 +738,14 @@ normCorr[:,:,ch1:ch2] = (np.abs(VrefTau.T)/0.5 / auto2 * wt_SEFD.reshape(nFPGA,1
 phiCorr  = np.zeros((1,nFPGA,nChan0), dtype=complex)
 phiCorr[:,:,ch1:ch2]  = np.exp(-1.j * np.angle(VrefTau.T)).reshape(1,nFPGA,nChan1)
 fcal2 = '%s/solution_2ndCal.npz'%(cdir,)
-np.savez(fcal2, auto2=auto2, tau_i=VrefTau, wt_SEFD=wt_SEFD, phiCorr=phiCorr, normCorr=normCorr, del_SEFD=del_SEFD)
+phiCorr_lead = np.zeros((1,nFPGA,nChan0), dtype=complex)
+phiCorr_lead[:,:,ch1:ch2] = np.exp(-1.j * np.angle(VrefTau_lead.T)).reshape(1,nFPGA,nChan1)
+np.savez(fcal2, auto2=auto2, tau_i=VrefTau, wt_SEFD=wt_SEFD, phiCorr=phiCorr, normCorr=normCorr, del_SEFD=del_SEFD,
+        tau_i_lead=VrefTau_lead, phiCorr_lead=phiCorr_lead, rfi_fix=rfi_fix, rfi_chan=rfi_chan, rfi_match=rfi_match)
 # auto2: relative ampld btw rows
-# tau_i: eigenvector including instrument delay and weighting between rows
+# tau_i: eigenvector including instrument delay and weighting between rows (RFI channels replaced)
+# tau_i_lead, phiCorr_lead: leading-mode solution before the RFI-channel replacement
+# rfi_chan: True where the phase was replaced (channels ch1:ch2); rfi_match: coherence of the leading mode with the delay model
 
 med_auto2 = np.median(auto2, axis=1)
 med_Vamp = np.median(np.abs(VrefTau), axis=0)
@@ -723,6 +822,7 @@ sub = s2d.flatten()
 
 for i in range(nFPGA):
     ax = sub[i]
+    ax.plot(freq_MHz[ch1:ch2], np.angle(VrefTau_lead[:,i]), color='k', marker='.', ms=2, ls='none', alpha=0.4, label='rem_geo(lead)')
     ax.plot(freq_MHz[ch1:ch2], np.angle(VrefTau[:,i]), color='gray', marker='.', ls='none', label='rem_geo')
     ax.plot(freq_MHz[ch1:ch2], np.angle(VrefC[:,i]), color='orange', marker='.', ls='none', label='rem_coarse')
     ax.plot(freq_MHz[ch1:ch2], np.angle(VrefF[:,i]), color='b', marker='.', ls='none', label='rem_fine')
