@@ -58,6 +58,7 @@ pad     = 32
 
 ant_flag = []
 nFlag   = 0
+dead_frac = 0.25 # auto-flag inputs below this fraction of the array median amplitude (0: off)
 
 usage   = '''
 compute covariance matrix and save the eigenmodes from a FPGA binary file
@@ -78,6 +79,9 @@ options are:
     --dcal DIR      # apply row phase corrections from
                     # DIR/solution_2ndCal.npz (default: None)
     --flag 'ant(s)' # specify the input number (0--255) to be flagged
+    --dead FRAC     # auto-flag dead inputs: median amplitude (over channels) below
+                    # FRAC of the array median, merged with --flag; 0 disables
+                    # (default: %.2f)
     --hd VER        # header version (1, 2)
                     # (default: %d)
     --meta bytes    # number of bytes in the ring buffer or file metadata
@@ -101,7 +105,7 @@ options are:
     --4bit          # read 4-bit data
     --ooff OFF      # offset added to the packet_order
 
-''' % (pg, nPack, p0, blocklen, nBlock, hdver, meta, arr_config, body, site, aref)
+''' % (pg, nPack, p0, blocklen, nBlock, dead_frac, hdver, meta, arr_config, body, site, aref)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -127,6 +131,8 @@ while (inp):
         ant_flag = [int(x) for x in tmp]
         print('ant_flag:', ant_flag)
         nFlag = len(ant_flag)
+    elif (k == '--dead'):
+        dead_frac = float(inp.pop(0))
     elif (k == '--no-bitmap'):
         no_bitmap = True
     elif (k == '--4bit'):
@@ -204,6 +210,10 @@ for ll in range(nLoop):
 
     if (os.path.isfile(fout) and not redo):
         attrs = getAttrs(fout)
+        if ('ant_flag' in attrs):   # includes the auto-flagged dead inputs
+            ant_flag = sorted(set(ant_flag) | set(int(x) for x in np.atleast_1d(attrs['ant_flag'])))
+            nFlag = len(ant_flag)
+            print('ant_flag (with saved flags):', ant_flag)
         tsec  = getData(fout, 'winSec')
         if (do_scale):
             savN2 = getData(fout, 'N2_scale')
@@ -290,6 +300,25 @@ for ll in range(nLoop):
 
         spec = spec.reshape((-1,nFrame,nChan))
         ## new shape (nFile*nAnt, nFrame, nChan), only 3 axes
+
+        if (dead_frac > 0):
+            # dead inputs (no signal) still give unit-amplitude samples in the phase-only coeff covariance,
+            # where they form strong spurious eigenmodes; flag inputs whose amplitude (std over the
+            # first 512 frames, median over channels) is below dead_frac of the array median
+            nInp = spec.shape[0]
+            sd = np.ma.masked_all((nInp, nChan))
+            for i0 in range(0, nInp, nAnt):
+                sub = spec[i0:i0+nAnt,:min(nFrame,512)]
+                sd[i0:i0+nAnt] = np.ma.sqrt((np.ma.abs(sub)**2).mean(axis=1) - np.ma.abs(sub.mean(axis=1))**2)
+            rel = np.ma.median(sd/np.ma.median(sd, axis=0), axis=1).filled(0.)    # fully masked -> 0
+            dead = [int(i) for i in np.where(rel < dead_frac)[0] if i not in ant_flag]
+            print('auto-flagged dead inputs (amplitude < %g x median):'%dead_frac, dead)
+            ant_flag = sorted(set(ant_flag) | set(dead))
+            nFlag = len(ant_flag)
+            if aref in ant_flag:
+                sys.exit('reference antenna %d is dead; choose another with --aref'%aref)
+        attrs['ant_flag'] = ant_flag
+        attrs['dead_frac'] = dead_frac
 
         if (do_scale):
             #Cov2, norm2 = makeCov(spec, scale=True, coeff=False, bandpass=True, ant_flag=ant_flag)

@@ -5,8 +5,8 @@ and dedisperse a pulse, optionally after up-channelizing each 390-kHz channel wi
 ("quasi-coherent": intra-channel smearing reduced N times, time resolution N x 2.56 us)
 
 syntax:
-    pulse_beamform.py.py <YYYYMMDD> <HHMMSS.sss> <beam_id> [options]
-    pulse_beamform.py.py --bf256 <YYYYMMDD> <HHMMSS.sss> <beam_id> [options]
+    pulse_beamform.py <YYYYMMDD> <HHMMSS.sss> <beam_id> [options]
+    pulse_beamform.py --bf256 <YYYYMMDD> <HHMMSS.sss> <beam_id> [options]
 
     the time is the reported arrival time at 300 MHz (UTC)
     BF512: beam_id = ns*32 + ew_col; 16 orders x 60 ch; files /burstt1*/disk*/baseband/baseband*_orderOO_<ts>Z_trig
@@ -34,6 +34,13 @@ options:
                     (default BF512 /burstt1*/disk*/baseband/baseband*_order{o}_{ts}Z_trig,
                      BF256 /burstt1*/disk*/data/ring?.{ts}Z.trig.o{o}.bin)
     --tag STR       extra suffix for the output names
+    --wexp X        band-sum weight per sub-channel ~ f^-X (default 2: the general SEFD trend; 0 = uniform).
+                    Each sub-channel is first normalized to unit off-pulse rms; the profile is
+                    sum(w*dn)/sqrt(sum(w^2)), then re-normalized by its off-pulse scatter
+    --wmax MS       widest boxcar for the width-adaptive integrated S/N (default 10 ms; also limited to
+                    1/4 of the off-pulse span). Boxcar widths are ~1.4x steps from one output bin; each
+                    boxcar S/N = sum/sqrt(n), divided by the measured off-pulse rms of that boxcar
+                    relative to white noise when > 1 (guards against baseline drifts)
 '''
 import os
 os.environ.setdefault('MKL_NUM_THREADS', '2')
@@ -51,6 +58,7 @@ if len(inp) < 3:
     sys.exit(__doc__)
 ymd, hms, beam = inp.pop(0), inp.pop(0), int(inp.pop(0))
 dm, toff, pad, nfft, tbin, flip, foff = 56.72, -0.016, 0.05, 16, 0.25e-3, True, 0.
+wexp, wmax = 2., 10e-3
 dcal = None
 caldir = '/burstt12/disk12/2nd_cal'
 logdir = '/home/ubuntu/burstt-log/bfm2'
@@ -84,6 +92,8 @@ while inp:
     elif k == '--odir': odir = inp.pop(0)
     elif k == '--glob': pat = inp.pop(0)
     elif k == '--tag': xtag = inp.pop(0)
+    elif k == '--wexp': wexp = float(inp.pop(0))
+    elif k == '--wmax': wmax = float(inp.pop(0))*1e-3
     else: sys.exit('unknown option %s' % k)
 cdir = os.path.join(odir, 'vcache')
 os.makedirs(cdir, exist_ok=True)
@@ -243,28 +253,75 @@ good = np.isfinite(dn).all(0) & (sd > 0)
 rr = np.full(dn.shape[1], np.inf)
 rr[good] = np.max(np.abs(dn[off][:, good]), 0)
 good &= rr < 8.             # drop sub-channels with off-pulse outliers (RFI)
-prof = np.nansum(dn[:, good], 1)/np.sqrt(good.sum())
-prof = (prof - np.mean(prof[off]))/np.std(prof[off])     # S/N against the measured off-pulse scatter
+
+
+def band_profile(x):
+    '''weighted band sum, weight ~ f^-x, normalized to unit off-pulse rms'''
+    wt = (fsub[good]/400.)**(-x)
+    p = (dn[:, good]*wt).sum(1)/np.sqrt((wt**2).sum())
+    return (p - np.mean(p[off]))/np.std(p[off])
+
+
+prof = band_profile(wexp)
+prof0 = band_profile(0.) if wexp != 0 else prof
 pk = int(np.argmax(prof))
-w = np.abs(tgrid - tgrid[pk]) < 1.5e-3
 print('sub-channels used %d / %d' % (good.sum(), good.size))
-print('peak S/N %.1f at %+.3f ms from t300+toff (t300 %+.3f ms); S/N within +-1.5 ms window sum %.1f' %
-      (prof[pk], tgrid[pk]*1e3, (tgrid[pk] + toff)*1e3, prof[w].sum()/np.sqrt(w.sum())))
+print('peak S/N (one %.3f-ms bin): %.1f with f^-%g weighting, %.1f uniform; at %+.3f ms from t300+toff (t300 %+.3f ms)' %
+      (nb*tsub*1e3, prof[pk], wexp, prof0[np.argmax(prof0)], tgrid[pk]*1e3, (tgrid[pk] + toff)*1e3))
+
+# width-adaptive integrated S/N: boxcar search over widths and positions
+dtb = nb*tsub
+noff = int(off.sum())
+nmax = max(1, min(int(round(wmax/dtb)), noff//4))
+widths = sorted(set(int(round(1.4142**i)) for i in range(40) if round(1.4142**i) <= nmax))
+offL = np.where(tgrid < -0.6*pad)[0]; offR = np.where(tgrid > 0.6*pad)[0]
+
+
+def boxcar(p, n):
+    c = np.convolve(p, np.ones(n), 'valid')               # c[i] = sum p[i:i+n]
+    # off-pulse boxcars lie entirely within one off-pulse side
+    io = np.r_[offL[:max(len(offL) - n + 1, 0)], offR[:max(len(offR) - n + 1, 0)]]
+    io = io[io < c.size]
+    infl = np.std(c[io])/np.sqrt(n) if io.size > 2 else 1.
+    return (c - np.mean(c[io]))/np.sqrt(n)/max(infl, 1.), infl
+
+
+bx = []
+print('boxcar  width(ms)   S/N    centre(ms)   off-pulse rms / white')
+for n in widths:
+    sn, infl = boxcar(prof, n)
+    cen = (tgrid[:sn.size] + tgrid[n - 1:])/2
+    i = int(np.argmax(np.where(np.abs(cen) <= 0.6*pad, sn, -np.inf)))    # centre within the on-pulse window
+    bx.append((sn[i], n, i, infl))
+    print('  %4d   %7.3f   %6.1f   %+8.3f     %.2f' % (n, n*dtb*1e3, sn[i], (tgrid[i] + tgrid[i + n - 1])/2*1e3, infl))
+snb, nbest, ib, _ = max(bx)
+tc = (tgrid[ib] + tgrid[ib + nbest - 1])/2
+print('best: integrated S/N %.1f over %d bins = %.3f ms, centred %+.3f ms from t300+toff (t300 %+.3f ms)' %
+      (snb, nbest, nbest*dtb*1e3, tc*1e3, (tc + toff)*1e3))
+if nbest == widths[-1]:
+    print('  (best width is the widest tried; raise --wmax/--pad if the pulse is broader)')
 # per-channel S/N at the peak (sub-channels averaged back to the 390-kHz grid) for the plot
+import warnings; warnings.simplefilter("ignore", RuntimeWarning)
 dch = np.nanmean(np.where(good, dn, np.nan).reshape(nOut, -1, nfft), 2)*np.sqrt(nfft)
 tag = tag0 + ('_n%d' % nfft) + ('_flip' if flip else '') + xtag
-np.savez(os.path.join(odir, tag + '.npz'), dch=dch, good=good, fsub=fsub, tgrid=tgrid, prof=prof,
+np.savez(os.path.join(odir, tag + '.npz'), dch=dch, good=good, fsub=fsub, tgrid=tgrid, prof=prof, prof0=prof0, wexp=wexp,
+         boxcar=np.array(bx), snr_int=snb, width=nbest*dtb, tcen=tc,
          t300=t300, toff=toff, dm=dm, beam=beam, nb=nb, nfft=nfft, flip=flip, foff=foff, info=info)
 
 import warnings; warnings.simplefilter('ignore')
 import matplotlib; matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-fig, ax = plt.subplots(2, 1, figsize=(8, 9), sharex=True, gridspec_kw=dict(height_ratios=[1, 3]))
+fig, ax = plt.subplots(2, 1, figsize=(8, 9.3), sharex=True, gridspec_kw=dict(height_ratios=[1, 3]))
 tms = tgrid*1e3
-ax[0].plot(tms, prof, 'k-', lw=0.8)
+ax[0].plot(tms, prof, 'k-', lw=0.8, label='f$^{-%g}$ weighted' % wexp)
+if wexp != 0:
+    ax[0].plot(tms, prof0, '-', color='0.6', lw=0.6, zorder=0, label='uniform')
+ax[0].axvspan((tc - nbest*dtb/2)*1e3, (tc + nbest*dtb/2)*1e3, color='#C44E52', alpha=0.2,
+              label='best boxcar %.2f ms, S/N %.1f' % (nbest*dtb*1e3, snb))
+ax[0].legend(fontsize=7, loc='upper right')
 ax[0].set_ylabel('S/N (band sum)')
-ax[0].set_title('%s %s %s UTC  beam %d (NS %d, EW %d)  DM %.2f\nnfft %d (%.1f kHz), bin %.3f ms; t=0: reported t300 %+.0f ms; peak S/N %.1f at %+.2f ms' %
-                (mode.upper(), ymd, hms, beam, ns, col, dm, nfft, DF/nfft*1e3, nb*tsub*1e3, toff*1e3, prof[pk], tms[pk]), fontsize=10)
+ax[0].set_title('%s %s %s UTC  beam %d (NS %d, EW %d)  DM %.2f\nnfft %d (%.1f kHz), bin %.3f ms; t=0: reported t300 %+.0f ms; peak S/N %.1f at %+.2f ms\nf$^{-%g}$-weighted band sum; best boxcar %.2f ms: integrated S/N %.1f' %
+                (mode.upper(), ymd, hms, beam, ns, col, dm, nfft, DF/nfft*1e3, nb*tsub*1e3, toff*1e3, prof[pk], tms[pk], wexp, nbest*dtb*1e3, snb), fontsize=9.5)
 nf = 8
 dd = np.nanmean(dch.reshape(nOut, -1, nf), 2)
 ff = (300. + DF*np.arange(NORD*NCH)).reshape(-1, nf).mean(1)
