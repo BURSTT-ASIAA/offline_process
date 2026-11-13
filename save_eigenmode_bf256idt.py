@@ -18,6 +18,71 @@ from delay_func2 import *
 
 DB = loadDB()
 
+def rfi_phase_fix(LV, freq, aref, method='interp', thr=0.75, nsig=5., win=33, pad=32, niter=4):
+    '''
+    replace the leading-mode phase in channels where the leading mode is not the calibrator
+    LV: tauGeo-corrected leading eigenvector referenced to aref, shape (nChan, nAnt)
+    model per antenna: delay + constant phase (fitted on clean channels) x residual phase
+    smoothed over win channels (and over 4 x win, which also catches broad RFI bands that the
+    short window follows); a channel is flagged when the coherence of all antennas with either
+    model is below thr x median, or below median - nsig x sigma (sigma from the MAD of the clean
+    channels, at least 0.01; this matters for high-SNR solutions where clean channels are ~1).
+    method: 'interp' fills flagged channels with the delay model x residual phase averaged
+            over the clean channels within win (4 x win, then linear interpolation, for wider
+            gaps); 'delay' with the delay model only.
+    amplitude is interpolated from the clean channels in both cases.
+    return: fixed LV, rfi channel mask (True = replaced), coherence per channel, delay (ns)
+    '''
+    V = np.ma.filled(LV, 0.).astype(complex)
+    nCh, nA = V.shape
+    amp = np.abs(V)
+    ok = amp.sum(axis=0) > 0                    # antennas with a solution
+    u = np.where(amp > 0, V/np.maximum(amp, 1e-30), 0.)
+    df = freq[1]-freq[0]
+    good = np.ones(nCh, dtype=bool)
+    kerns = [np.ones(min(w, nCh)) for w in (win, 4*win)]
+    for it in range(niter):
+        FT = np.fft.fftshift(np.fft.fft(u*good.reshape((-1,1)), n=int(nCh*pad), axis=0), axes=0)
+        lag = np.abs(FT).argmax(axis=0) - int(pad*nCh/2)
+        tau_ns = lag/(nCh*pad*df)*1e3
+        mod = np.exp(2j*np.pi*freq.reshape((-1,1))*1e-3*tau_ns.reshape((1,-1)))
+        ph0 = np.angle(np.sum((u*mod.conj())[good], axis=0))
+        mod *= np.exp(1j*ph0).reshape((1,-1))
+        res = u*mod.conj()*good.reshape((-1,1))
+        new_good = np.ones(nCh, dtype=bool)
+        for k, kern in enumerate(kerns):
+            sm = np.array([np.convolve(res[:,ai], kern, 'same') for ai in range(nA)]).T
+            sm /= np.maximum(np.abs(sm), 1e-30)
+            mk = np.abs(np.sum((u*np.conj(mod*sm))[:,ok], axis=1))/max(ok.sum(), 1)
+            med = np.median(mk[good])
+            sig = max(1.4826*np.median(np.abs(mk[good]-med)), 0.01)
+            new_good &= mk > max(thr*med, med-nsig*sig)
+            if (k == 0):
+                match = mk      # short-window coherence is returned
+        good = new_good
+    bad = ~good
+    if (method == 'none' or not bad.any()):
+        return LV, bad, match, tau_ns
+    ich = np.arange(nCh)
+    fix = np.ma.getdata(LV).astype(complex)     # unused inputs keep their values
+    for ai in np.where(ok)[0]:
+        a = np.interp(ich[bad], ich[good], amp[good,ai])
+        if (method == 'interp'):
+            r = u[:,ai]*mod[:,ai].conj()*good
+            rg = r[good]
+            ri = np.interp(ich[bad], ich[good], rg.real) + 1j*np.interp(ich[bad], ich[good], rg.imag)
+            for kern in kerns[::-1]:    # clean-channel average within win where available
+                rs = np.convolve(r, kern, 'same')[bad]
+                ri = np.where(np.abs(rs) > 0.5, rs, ri)
+            ri /= np.maximum(np.abs(ri), 1e-30)
+        else:
+            ri = 1.
+        fix[bad,ai] = a*mod[bad,ai]*ri
+    ref = np.exp(1j*np.angle(fix[bad,aref]))   # keep the aref reference in the replaced channels
+    fix[np.ix_(bad,ok)] /= ref.reshape((-1,1))
+    return np.ma.array(fix, mask=np.ma.getmaskarray(LV)), bad, match, tau_ns
+
+
 inp = sys.argv[0:]
 pg  = inp.pop(0)
 
@@ -58,6 +123,10 @@ pad     = 32
 
 ant_flag = []
 nFlag   = 0
+rfi_fix = 'interp'      # 'interp', 'delay' or 'none'
+rfi_thr = 0.75          # flag channels whose model coherence < rfi_thr x median
+rfi_win = 33            # channels used to smooth the residual phase
+rfi_min = 0.9           # skip the fix if the clean-channel coherence median is below this
 dead_frac = 0.25 # auto-flag inputs below this fraction of the array median amplitude (0: off)
 
 usage   = '''
@@ -82,6 +151,18 @@ options are:
     --dead FRAC     # auto-flag dead inputs: median amplitude (over channels) below
                     # FRAC of the array median, merged with --flag; 0 disables
                     # (default: %.2f)
+    --rfi-fix METHOD
+                    # phase correction in the channels where the leading mode is not
+                    # the calibrator (RFI): 'interp' (delay model x residual phase
+                    # interpolated from clean channels), 'delay' (delay model only),
+                    # or 'none'. The leading-mode solution is kept as
+                    # 'eigenvector_lead' in antCals.npz (default: %s)
+    --rfi-thr THR   # flag channels whose coherence with the model is below
+                    # THR x median (default: %.2f)
+    --rfi-win NCH   # channels used to smooth the residual phase (default: %d)
+    --rfi-min MIN   # skip the fix (keep the leading mode) when the median coherence
+                    # of the clean channels is below MIN, i.e. the leading mode is not
+                    # a point calibrator, e.g. at night (default: %.2f)
     --hd VER        # header version (1, 2)
                     # (default: %d)
     --meta bytes    # number of bytes in the ring buffer or file metadata
@@ -105,7 +186,7 @@ options are:
     --4bit          # read 4-bit data
     --ooff OFF      # offset added to the packet_order
 
-''' % (pg, nPack, p0, blocklen, nBlock, dead_frac, hdver, meta, arr_config, body, site, aref)
+''' % (pg, nPack, p0, blocklen, nBlock, dead_frac, rfi_fix, rfi_thr, rfi_win, rfi_min, hdver, meta, arr_config, body, site, aref)
 
 if (len(inp) < 1):
     sys.exit(usage)
@@ -131,6 +212,16 @@ while (inp):
         ant_flag = [int(x) for x in tmp]
         print('ant_flag:', ant_flag)
         nFlag = len(ant_flag)
+    elif (k == '--rfi-fix'):
+        rfi_fix = inp.pop(0)
+        if rfi_fix not in ('interp', 'delay', 'none'):
+            sys.exit('--rfi-fix must be interp, delay or none')
+    elif (k == '--rfi-thr'):
+        rfi_thr = float(inp.pop(0))
+    elif (k == '--rfi-win'):
+        rfi_win = int(inp.pop(0))
+    elif (k == '--rfi-min'):
+        rfi_min = float(inp.pop(0))
     elif (k == '--dead'):
         dead_frac = float(inp.pop(0))
     elif (k == '--no-bitmap'):
@@ -442,6 +533,24 @@ for ll in range(nLoop):
     LV3C = LV3 * c_arr.T.reshape((nChan3, nAnt3))
     refC = np.ma.exp(1.j*np.ma.angle(LV3C[:,aref]))
     LV3C /= refC.reshape((-1,1))
+    # replace the phase in RFI dominated channels; keep the leading-mode solution
+    LV3C_lead = LV3C.copy()
+    use = np.ones(nAnt3, dtype=bool)
+    use[list(ant_flag)] = False     # flagged inputs (zero rows in Cov) are left out and unchanged
+    LV3C_in = LV3C.copy()
+    LV3C_in[:,~use] = 0.
+    LV3C, rfi_chan, rfi_match, rfi_tau = rfi_phase_fix(LV3C_in, freq, aref, method=rfi_fix,
+            thr=rfi_thr, win=rfi_win, pad=pad)
+    LV3C[:,~use] = LV3C_lead[:,~use]
+    rfi_clean = np.median(rfi_match[~rfi_chan]) if (~rfi_chan).any() else 0.
+    if (rfi_fix != 'none' and rfi_clean < rfi_min):
+        print('RFI phase fix skipped: clean-channel coherence %.3f < %.2f (no point calibrator?)'%(rfi_clean, rfi_min))
+        LV3C = LV3C_lead.copy()
+        rfi_fix = 'skipped'
+    print('RFI phase fix (%s): %d channels, clean-channel coherence %.3f'%(rfi_fix, rfi_chan.sum(), rfi_clean))
+    adoneh5(fout, LV3C_lead, 'antCal_lead')
+    adoneh5(fout, rfi_chan, 'rfi_chan')
+    adoneh5(fout, rfi_match, 'rfi_match')
 
     NLV3C = savN3.T * LV3C
     NLV3C.fill_value = 0j
@@ -582,6 +691,7 @@ for ll in range(nLoop):
             ax3 = sub3.flat[local_ant]
             if ai not in flagged:
                 ax.plot(freq, np.ma.angle(LV3[:,ai]), label='obs')
+                ax.plot(freq, np.ma.angle(LV3C_lead[:,ai]), color='k', lw=0.5, alpha=0.4, label='inst.(lead)')
                 ax.plot(freq, np.ma.angle(LV3C[:,ai]), label='inst.')
                 ax.plot(freq, np.ma.angle(VrefC[:,ai]), color='gray', label='resid.')
                 ax.text(0.55,0.85,'tau:%.2fns'%peak_ns[ai],transform=ax.transAxes,color='C1')
@@ -656,6 +766,10 @@ for ll in range(nLoop):
                 winSec=tsec,
                 auto=savN3[row_slice].T,
                 eigenvector=LV3C[:,row_slice],
+                eigenvector_lead=LV3C_lead[:,row_slice],  # leading mode before the RFI-channel replacement
+                rfi_fix=rfi_fix,
+                rfi_chan=rfi_chan,      # (nChan,) True where the phase was replaced
+                rfi_match=rfi_match,    # (nChan,) coherence of the leading mode with the delay model
                 antCal2=NLV3C2[:,row_slice].filled(),
                 coeff=row_coeff,
                 wt_SEFD=row_wt,
