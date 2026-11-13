@@ -1,4 +1,4 @@
-CMD=". /usr/share/Modules/init/sh; module add compiler; /opt/python/miniconda3/bin/python3 /data/kylin/beamform/intensity2disk256.py"
+CMD=". /usr/share/Modules/init/sh; module add compiler; /opt/python/miniconda3/envs/bursttda/bin/python3 /data/kylin/beamform/intensity2disk256.py"
 ## original, did not work on burstt12 because of python path
 #CMD=". /usr/share/Modules/init/sh; module add compiler; /data/kylin/beamform/intensity2disk256.py"
 
@@ -26,12 +26,13 @@ CMD1="$CMD 1 $DUR --mode 16 -d ${ids[1]} --cbin --tbin 8"
 ## manual run: schedule only the remaining hours before midnight,
 ## the cron job at 23:30 will take care of the next day
 now_h=$((10#$(date +%H)))
+echo now_h $now_h
 if (( now_h >= 23 )); then
     start=0
 else
     start=$((now_h + 1))
 fi
-echo $start
+echo start_h $start
 
 for ((i=$start; i<=23; i++)); do
         hh="${i}:00"
