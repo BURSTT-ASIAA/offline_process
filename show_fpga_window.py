@@ -13,6 +13,7 @@ from delay_func2 import *
 from array_func import blsubplots
 
 import plot_util
+from array_func import atten2d, atten2d_azel    # 2D Gaussian antenna attenuation (2026-11-15)
 
 DB = loadDB()
 
@@ -46,6 +47,7 @@ poslim  = 0.5
 possep  = 0.1
 gant    = 6.0       # antenna max gain in dB
 Ehwhm   = 30.       # E-plane half-power half width in deg
+att1d = False    # True: old separable attenuation (--att1d)
 Hhwhm   = 60.       # H-plane half-power half width in deg
 dellim  = 150.
 delsep  = 0.5
@@ -71,6 +73,7 @@ syntax:
     %s <.vish5_files> [options]
 
 options are:
+    --att1d      # old separable attenuation on projected angles (default: 2D Gaussian on the true off-axis angle)
     -b BODY         # specify the target name for fringe estimate
                     # (default: %s)
 
@@ -155,6 +158,9 @@ if (len(inp) < 1):
 files = []
 while (inp):
     k = inp.pop(0)
+    if (k == '--att1d'):
+        att1d = True
+        continue
     if (k == '--rf'):
         rfmin = float(inp.pop(0))
         rfmax = float(inp.pop(0))
@@ -275,6 +281,8 @@ G0 = 10.**(gant/10.)
 
 ##################################################
 ## analysis functions
+
+
 
 def atten(x, hwhm):
     '''
@@ -426,7 +434,8 @@ def source_geometry(tWin, nWin):
     else:
         Eatt = atten(EWoff/np.pi*180., Ehwhm)
         Hatt = atten(NSoff/np.pi*180., Hhwhm)
-    att0 = Eatt*Hatt
+    att0 = Eatt*Hatt if att1d else (atten2d(pntx, pnty, pntz, Hhwhm, Ehwhm) if swapEH else
+                                     atten2d(pntx, pnty, pntz, Ehwhm, Hhwhm))
 
     unitVec  = np.array([np.sin(theta)*np.cos(phi), np.sin(theta)*np.sin(phi), np.cos(theta)], ndmin=2).T
     unitVec *= -1       # swapped definition

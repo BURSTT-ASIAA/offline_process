@@ -602,3 +602,44 @@ def loadLog(fconf):
 
 
 
+
+
+#---- antenna (element) attenuation: 2D Gaussian on the true off-boresight angle (2026-11-15) ----
+def atten2d(x, y, z, hwhm_ew, hwhm_ns, ecent=0., ncent=0.):
+    '''
+    2D Gaussian antenna attenuation on the true angle from boresight (large-angle safe):
+        P = exp(-ln2 * th^2 * (x'^2/a^2 + y'^2/b^2)/(x'^2 + y'^2)),  th = arccos(z')
+    exact 1D Gaussian in th along the EW (a = hwhm_ew) and NS (b = hwhm_ns) planes, smooth in between; 0 below the horizon.
+
+    x, y, z: source direction unit vector (x East, y North, z up); scalars or arrays of the same shape
+    hwhm_ew, hwhm_ns: half width at half maximum in deg
+    ecent, ncent: boresight tilt as projected angles in deg (atan(x/z), atan(y/z) convention); 0, 0 = zenith
+    (x', y', z') = the source direction in the antenna frame
+
+    replaces the old separable form atten(atan2(x,z), a)*atten(atan2(y,z), b), which falls too steeply away from
+    the principal planes (x1.3 at 45 deg, x2.4 at 60 deg zenith angle on the diagonals)
+    '''
+    x, y, z = np.asarray(x, float), np.asarray(y, float), np.asarray(z, float)
+    if ecent or ncent:
+        bore = np.array([np.tan(np.radians(ecent)), np.tan(np.radians(ncent)), 1.])
+        bore /= np.linalg.norm(bore)
+        u = np.array([1., 0., 0.]) - bore[0]*bore
+        u /= np.linalg.norm(u)                  # antenna EW axis
+        v = np.cross(bore, u)                   # antenna NS axis
+        x, y, z = u[0]*x + u[1]*y + u[2]*z, v[0]*x + v[1]*y + v[2]*z, bore[0]*x + bore[1]*y + bore[2]*z
+    th = np.arccos(np.clip(z, -1., 1.))
+    r2 = x*x + y*y
+    a2, b2 = np.radians(hwhm_ew)**2, np.radians(hwhm_ns)**2
+    w = np.where(r2 > 0, (x*x/a2 + y*y/b2)/np.where(r2 > 0, r2, 1.), 1./a2)
+    return np.where(z > 0, np.exp(-np.log(2.)*th**2*w), 0.)
+
+
+def atten2d_azel(az, el, hwhm_ew, hwhm_ns, ecent=0., ncent=0.):
+    '''
+    same as atten2d, with the source direction given as azimuth and elevation in DEGREES
+    (az from North through East; all angles in this function are in deg, like the HWHMs):
+        x = cos(el) sin(az),  y = cos(el) cos(az),  z = sin(el)
+    for ephem (radians): atten2d_azel(np.degrees(body.az), np.degrees(body.alt), ...)
+    '''
+    az, el = np.radians(np.asarray(az, float)), np.radians(np.asarray(el, float))
+    return atten2d(np.cos(el)*np.sin(az), np.cos(el)*np.cos(az), np.sin(el), hwhm_ew, hwhm_ns, ecent, ncent)

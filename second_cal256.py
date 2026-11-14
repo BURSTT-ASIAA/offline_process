@@ -10,6 +10,9 @@ from packet_func import *
 from calibrate_func import *
 from pyplanet import *
 from util_func import *
+from array_func import atten2d, atten2d_azel    # 2D Gaussian antenna attenuation (2026-11-15)
+
+
 
 def atten(x, hwhm):
     '''
@@ -131,6 +134,7 @@ f610 = 7.0e5 # Jy
 G0 = 8.0 # dB
 ## beam width
 EW_hwhm = 30 # deg, IAA
+att1d = False    # True: old separable attenuation (--att1d)
 NS_hwhm = 46 # deg, IAA
 
 usage = '''
@@ -143,6 +147,7 @@ currently, the .bin files are expected to be from the same snapshot
 a .check folder will be created based on the files timestamp
 
 options are:
+    --att1d      # old separable attenuation on projected angles (default: 2D Gaussian on the true off-axis angle)
     -n nFrame   # instead of nPack, specify number of frames to process
                 # default: %d
     -s SEP      # row spacing in meters
@@ -191,6 +196,9 @@ if (len(inp) < 1):
 files = []
 while (inp):
     k = inp.pop(0)
+    if (k == '--att1d'):
+        att1d = True
+        continue
     if (k == '-n'):
         nFrame = int(inp.pop(0))
     elif (k == '-s'):
@@ -437,7 +445,7 @@ EWoff = np.arctan2(pntx,pntz) # rad
 NSoff = np.arctan2(pnty,pntz) # rad
 Eatt = atten(EWoff/np.pi*180., EW_hwhm)
 Hatt = atten(NSoff/np.pi*180., NS_hwhm)
-att0 = Eatt*Hatt
+att0 = Eatt*Hatt if att1d else atten2d(pntx, pnty, pntz, EW_hwhm, NS_hwhm)
 print('atten:', att0)
 
 ## calculate SEFD

@@ -16,8 +16,11 @@ from pyplanet import *
 from delay_func2 import *
 
 import plot_util
+from array_func import atten2d, atten2d_azel    # 2D Gaussian antenna attenuation (2026-11-15)
 
 DB = loadDB()
+
+
 
 def atten(x, hwhm):
     '''
@@ -123,6 +126,7 @@ aref    = None
 theta_rot = None
 ## IAA ant beam width in deg
 EW_hwhm = 30.
+att1d = False    # True: old separable attenuation (--att1d)
 NS_hwhm = 46.
 ## solar flux placeholder
 f410 = 5e5
@@ -151,6 +155,8 @@ syntax:
     %s <bin file(s)> [options]
 
 options are:
+    --hwhm EW NS # half width at half max of the antenna beam in deg (default 30 46)
+    --att1d      # old separable attenuation on projected angles (default: 2D Gaussian on the true off-axis angle)
     -n nPack    # read nPack from the binary file (%d)
 
     --p0 p0     # starting packet offset (%d)
@@ -230,6 +236,13 @@ if (len(inp) < 1):
 files0 = []
 while (inp):
     k = inp.pop(0)
+    if (k == '--att1d'):
+        att1d = True
+        continue
+    if (k == '--hwhm'):
+        EW_hwhm = float(inp.pop(0))
+        NS_hwhm = float(inp.pop(0))
+        continue
     if (k == '-n'):
         nPack = int(inp.pop(0))
     elif (k == '--p0'):
@@ -630,7 +643,7 @@ for ll in range(nLoop):
         NSoff = np.arctan2(pnty,pntz) # rad
         Eatt = atten(EWoff/np.pi*180., EW_hwhm)
         Hatt = atten(NSoff/np.pi*180., NS_hwhm)
-        att0 = Eatt*Hatt
+        att0 = Eatt*Hatt if att1d else atten2d(pntx, pnty, pntz, EW_hwhm, NS_hwhm)
         adoneh5(fout, att0, 'atten')
         adoneh5(fout, EWoff, 'EWoff')
         adoneh5(fout, NSoff, 'NSoff')

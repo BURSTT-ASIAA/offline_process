@@ -15,8 +15,11 @@ from calibrate_func import *    # makeCov, Cov2Eig
 from loadh5 import *            # getData, adoneh5, getAttrs, putAttrs
 from pyplanet import *          # obsBody, loadDB
 from delay_func2 import *
+from array_func import atten2d, atten2d_azel    # 2D Gaussian antenna attenuation (2026-11-15)
 
 DB = loadDB()
+
+
 
 def rfi_phase_fix(LV, freq, aref, method='interp', thr=0.75, nsig=5., win=33, pad=32, niter=4):
     '''
@@ -113,6 +116,7 @@ do_scale = False
 do_coeff = True
 aref    = 0
 EW_hwhm = 30.
+att1d = False    # True: old separable attenuation (--att1d)
 NS_hwhm = 46.
 f410    = 5e5
 f610    = 7e5
@@ -139,6 +143,8 @@ syntax:
 the .bin files are expected to be from the same snapshot (one file per order)
 
 options are:
+    --hwhm EW NS # half width at half max of the antenna beam in deg (default 30 46)
+    --att1d      # old separable attenuation on projected angles (default: 2D Gaussian on the true off-axis angle)
     -n nFrame       # number of frames to process (%d)
     --p0 p0         # starting packet offset (%d)
     --beam0 B0      # the idt BFM maps antenna i to beams 2i and 2i+1;
@@ -189,6 +195,13 @@ if (len(inp) < 1):
 files0 = []
 while (inp):
     k = inp.pop(0)
+    if (k == '--att1d'):
+        att1d = True
+        continue
+    if (k == '--hwhm'):
+        EW_hwhm = float(inp.pop(0))
+        NS_hwhm = float(inp.pop(0))
+        continue
     if (k == '-n'):
         nFrame = int(inp.pop(0))
     elif (k == '--p0'):
@@ -488,9 +501,9 @@ for ll in range(nLoop):
         pnty = pntr * np.cos(az)
         EWoff = np.arctan2(pntx, pntz)
         NSoff = np.arctan2(pnty, pntz)
-        Eatt = np.exp(-((EWoff/np.pi*180.)**2)/(30./np.sqrt(2.*np.log(2.)))**2/2.)
-        Hatt = np.exp(-((NSoff/np.pi*180.)**2)/(46./np.sqrt(2.*np.log(2.)))**2/2.)
-        att0 = Eatt * Hatt
+        Eatt = np.exp(-((EWoff/np.pi*180.)**2)/(EW_hwhm/np.sqrt(2.*np.log(2.)))**2/2.)
+        Hatt = np.exp(-((NSoff/np.pi*180.)**2)/(NS_hwhm/np.sqrt(2.*np.log(2.)))**2/2.)
+        att0 = Eatt * Hatt if att1d else atten2d(pntx, pnty, pntz, EW_hwhm, NS_hwhm)
         if (verbose):
             print('atten:', att0)
         adoneh5(fout, att0, 'atten')

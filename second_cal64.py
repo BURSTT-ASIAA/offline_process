@@ -10,8 +10,11 @@ from packet_func import *
 from calibrate_func import *
 from pyplanet import *
 from util_func import *
+from array_func import atten2d, atten2d_azel    # 2D Gaussian antenna attenuation (2026-11-15)
 
 from  getStationConfig import *
+
+
 
 
 def atten(x, hwhm):
@@ -142,6 +145,8 @@ antenna_type = 'MED'
 G0 = Antenna[antenna_type]['Gain']     #7.0 # dB
 ## beam width
 EW_hwhm   = Antenna[antenna_type]['Ehwhm'] # E-W beam half width (deg) at half max
+hwhm_set = False
+att1d = False    # True: old separable attenuation (--att1d)
 NS_hwhm   = Antenna[antenna_type]['Hhwhm'] # N-S beam half width (deg) at half max
 
 
@@ -159,6 +164,7 @@ currently, the .bin files are expected to be from the same snapshot
 a .check folder will be created based on the files timestamp
 
 options are:
+    --att1d      # old separable attenuation on projected angles (default: 2D Gaussian on the true off-axis angle)
     -n nFrame   # instead of nPack, specify number of frames to process
                 # default: %d
     -s SEP      # row spacing in meters
@@ -210,6 +216,9 @@ if (len(inp) < 1):
 files = []
 while (inp):
     k = inp.pop(0)
+    if (k == '--att1d'):
+        att1d = True
+        continue
     if (k == '-n'):
         nFrame = int(inp.pop(0))
     elif (k == '-s'):
@@ -238,6 +247,7 @@ while (inp):
     elif (k == '--gant'):
         G0 = float(inp.pop(0))
     elif (k == '--hwhm'):
+        hwhm_set = True
         EW_hwhm = float(inp.pop(0))
         NS_hwhm = float(inp.pop(0))
     elif (k == '--ant'):
@@ -267,8 +277,9 @@ while (inp):
 
 G0 = Antenna[antenna_type]['Gain']     #7.0 # dB
 ## beam width
-EW_hwhm   = Antenna[antenna_type]['Ehwhm'] # E-W beam half width (deg) at half max
-NS_hwhm   = Antenna[antenna_type]['Hhwhm'] # N-S beam half width (deg) at half max
+if not hwhm_set:     # keep a user --hwhm (it used to be overwritten here)
+    EW_hwhm   = Antenna[antenna_type]['Ehwhm'] # E-W beam half width (deg) at half max
+    NS_hwhm   = Antenna[antenna_type]['Hhwhm'] # N-S beam half width (deg) at half max
 
 print(f'antenna gain {G0} dBi, half-width hallf maximum = {EW_hwhm} deg (E-W), {NS_hwhm} deg (N-S)')
 print(f'reference antenna: {RefAntID}')
@@ -522,7 +533,7 @@ EWoff = np.arctan2(pntx,pntz) # rad
 NSoff = np.arctan2(pnty,pntz) # rad
 Eatt = atten(EWoff/np.pi*180., EW_hwhm)
 Hatt = atten(NSoff/np.pi*180., NS_hwhm)
-att0 = Eatt*Hatt
+att0 = Eatt*Hatt if att1d else atten2d(pntx, pnty, pntz, EW_hwhm, NS_hwhm)
 print('atten:', att0)
 
 ## calculate SEFD

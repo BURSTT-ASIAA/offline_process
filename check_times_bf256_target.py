@@ -19,6 +19,7 @@ import matplotlib.dates as mdates
 import ephem
 import pytz
 from glob import glob
+from array_func import atten2d, atten2d_azel    # 2D Gaussian antenna attenuation (2026-11-15)
 
 from  getStationConfig import *
 
@@ -57,6 +58,7 @@ Antenna = {
 antenna_type = 'MMLPDA'
 
 Ehwhm   = Antenna[antenna_type]['Ehwhm'] #30 # E-W beam half width (deg) at half max
+att1d = False    # True: old separable attenuation (--att1d)
 Hhwhm   = Antenna[antenna_type]['Hhwhm'] #60 # N-S beam half width (deg) at half max
 
 
@@ -88,6 +90,8 @@ scale_snr = True
 
 # whether to save the profiles in an npz file
 saveNPZ = False
+
+
 
 
 def atten(x, hwhm):
@@ -133,6 +137,7 @@ e.g.:
     {pg} 16 4 -7.5 -1.5 PSR_B0329+54 20250314 --site LTN --angle '-10.14 -5.23 7.24 35.24'
 
 options are:
+    --att1d      # old separable attenuation on projected angles (default: 2D Gaussian on the true off-axis angle)
     --nant nAnt         # override nAnt from site config
     --nrow nRow         # override nRow from site config
     --row_mask 'r0 r1 ...'
@@ -204,6 +209,9 @@ if (len(inp)<1):
 
 while(inp):
     k = inp.pop(0)
+    if (k == '--att1d'):
+        att1d = True
+        continue
     if (k == '--s_ew'):
         sep1 = float(inp.pop(0))
     elif (k == '--s_ns'):
@@ -597,7 +605,7 @@ if cal_atten:
     Hatt = atten(NSang-Ncent, Hhwhm)
     #print('debug: max(Eatt)', Eatt.max())
     #print('debug: max(Hatt)', Hatt.max())
-    att0 = Eatt*Hatt
+    att0 = Eatt*Hatt if att1d else atten2d(x, y, z, Ehwhm, Hhwhm, Ecent, Ncent)
     print('peak att:', att0.max())
     inVolt *= att0[np.newaxis,np.newaxis,:,np.newaxis]
 
