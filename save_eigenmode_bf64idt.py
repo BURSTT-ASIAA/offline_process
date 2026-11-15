@@ -288,7 +288,8 @@ if (site == 'longtien' or site.lower()=='ltn'):
     arr_config = '16x1.0y2.0'
     theta_rot = 0.5
 elif (site == 'lyudao' or site.lower()=='grn'):
-    arr_config = '16x1.0y1.0'
+    if (arr_config == '16x1.0y2.0'):
+        arr_config = '16x1.0y1.0'
     theta_rot = 0.0
 
 if (arr_config in ['16x1.0y0.5', '16x1.0y2.0', '16x1.0y1.0']):
