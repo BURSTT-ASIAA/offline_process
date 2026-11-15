@@ -5,6 +5,7 @@ from util_func import *
 from delay_func2 import *
 from numpy.linalg import pinv
 import matplotlib.colors as colors
+from scipy.special import j1
 import sys, os.path
 
 inp = sys.argv[0:]
@@ -21,6 +22,9 @@ nAnt    = 16
 gdiff   = np.zeros(nAnt)
 aref    = 0
 chlim   = None
+sun_diam = 0.      # deg; >0: correct for a resolved source (uniform disk)
+free_nn = False    # free offset for nearest-neighbour baselines (coupling)
+min_bl  = 0.       # m; baselines shorter than this are excluded from the Tsys/SEFD solve
 
 
 def solve_masked(B, D):
@@ -78,6 +82,17 @@ options are:
                         # if multiple antennas are different, use --gdiff multiple times
     --aref ANT          # select reference antenna for Tau and Phi solutions
     --chlim MIN MAX     # set channel range for SEFD and Tsys average
+    --sunres DIAM       # correct the Tsys/SEFD (1D and 2D) for a resolved source,
+                        # modelled as a uniform disk of DIAM deg (e.g. 0.7 for the Sun at 300-700 MHz)
+                        # each baseline is multiplied by the disk visibility 2J1(x)/x,
+                        # x = pi*DIAM*b_proj/lambda, b_proj = baseline projected perpendicular to the source
+                        # (uses 'el', 'az', 'ant_xyz' and 'freq' in the vish5)
+                        # default: no correction
+    --freenn            # add a free offset for the nearest-neighbour baselines in the log Tsys/SEFD solve
+                        # (absorbs near-neighbour coupling; saved as ant<name>_nn, a ratio)
+    --minbl LEN         # exclude baselines shorter than LEN m from the log Tsys/SEFD solve
+                        # (e.g. --minbl 1.5 drops the 1 m nearest-neighbour baselines, which suffer coupling)
+                        # Tau and Phi solutions are not affected; default 0 (use all)
 
     if the fringe-stopped results (winTsys_fs, winTsys2D_fs, winSEFD2D_fs, winCoeffRFI)
     from show_fpga_window.py exist, they are also solved and saved with the '_fs' suffix
@@ -109,6 +124,12 @@ while (inp):
         gdiff[ai] = float(inp.pop(0))
     elif (k == '--aref'):
         aref = int(inp.pop(0))
+    elif (k == '--sunres'):
+        sun_diam = float(inp.pop(0))
+    elif (k == '--freenn'):
+        free_nn = True
+    elif (k == '--minbl'):
+        min_bl = float(inp.pop(0))
     elif (k == '--chlim'):
         chmin = int(inp.pop(0))
         chmax = int(inp.pop(0))
@@ -213,6 +234,61 @@ for fvis in files:
                 B[b,aj] = 0.5
 
 
+    # resolved-source correction: Tsys/SEFD from a partly resolved source are over-estimated by 1/V
+    # (V = visibility amplitude of the source on that baseline); multiply them by V
+    if (sun_diam > 0.):
+        el  = getData(fvis, 'el')
+        az  = getData(fvis, 'az')
+        xyz = getData(fvis, 'ant_xyz')
+        freq = getData(fvis, 'freq')    # MHz
+        if (el is None or az is None or xyz is None):
+            sys.exit('--sunres needs el, az and ant_xyz in %s' % fvis)
+        el = np.ma.getdata(el)[tsel]
+        az = np.ma.getdata(az)[tsel]
+        xyz = np.ma.getdata(xyz)
+        s_hat = np.array([np.cos(el)*np.sin(az), np.cos(el)*np.cos(az), np.sin(el)]).T    # (nWin, 3), x=E y=N z=up
+        bvec = np.array([xyz[aj]-xyz[ai] for ai in range(nAnt-1) for aj in range(ai+1, nAnt)])   # (nBl, 3) m
+        bdot = np.dot(s_hat, bvec.T)                                                           # (nWin, nBl)
+        bproj = np.sqrt(np.maximum((bvec**2).sum(1)[np.newaxis,:] - bdot**2, 0.))
+        xx = np.pi*np.radians(sun_diam)*bproj[:,:,np.newaxis]*np.ma.getdata(freq)[np.newaxis,np.newaxis,:]*1e6/2.998e8
+        xx = np.maximum(xx, 1e-6)
+        sunV = 2.*j1(xx)/xx                                         # (nWin, nBl, nChan)
+        sunV1 = np.median(sunV[:,:,chlim[0]:chlim[1]], axis=2)      # (nWin, nBl), for the per-window Tsys
+        print('--sunres %.2f deg: visibility min %.3f, median %.3f' % (sun_diam, sunV.min(), np.median(sunV)))
+        winTsys = winTsys * sunV1
+        if (do_Tsys2D):
+            winTsys2D = winTsys2D * sunV
+        if (do_SEFD2D):
+            winSEFD2D = winSEFD2D * sunV
+        if (do_fs):
+            winTsys_fs = winTsys_fs * sunV1
+            winTsys2D_fs = winTsys2D_fs * sunV
+            winSEFD2D_fs = winSEFD2D_fs * sunV
+
+    # matrix for the log Tsys/SEFD solve: optionally drop short baselines, add a nearest-neighbour column
+    Bs = B.copy()
+    bl_drop = np.zeros(nBl, dtype=bool)
+    use_nn = free_nn
+    if (use_nn or min_bl > 0.):
+        xyz = getData(fvis, 'ant_xyz')
+        if (xyz is None):
+            sys.exit('--freenn/--minbl need ant_xyz in %s' % fvis)
+        xyz = np.ma.getdata(xyz)
+        blen = np.array([np.linalg.norm(xyz[aj]-xyz[ai]) for ai in range(nAnt-1) for aj in range(ai+1, nAnt)])
+        if (min_bl > 0.):
+            bl_drop = (blen < min_bl) & np.any(B!=0, axis=1)
+            Bs[bl_drop] = 0.        # all-zero rows get zero weight in solve_masked
+            print('--minbl %.2f m: %d baselines excluded from the Tsys/SEFD solve' % (min_bl, bl_drop.sum()))
+        if (use_nn):
+            nn = (blen < 1.5*blen[blen>0].min()) & np.any(Bs!=0, axis=1)
+            if (nn.sum() > 0):
+                Bs = np.concatenate((Bs, nn.astype(float)[:,np.newaxis]), axis=1)
+                print('--freenn: %d nearest-neighbour baselines (%.2f m)' % (nn.sum(), blen[nn].mean()))
+            else:
+                use_nn = False
+                print('--freenn ignored: no nearest-neighbour baseline left after --minbl')
+    sun_attrs = {'sunres_diam': sun_diam, 'freenn': int(use_nn), 'minbl': min_bl}
+
     # pseudo-inverse
     Ainv = pinv(A)
     Binv = pinv(B)
@@ -254,8 +330,10 @@ for fvis in files:
             M -= M[aref,:]   # Ant0 as reference Tau
             R = np.dot(A, M) - D
         else:
-            M = solve_masked(B, D)  # shape (nAnt, nWin)
-            BM = np.ma.dot(B, M)
+            Mx = solve_masked(Bs, D)  # shape (nAnt[+1], nWin)
+            M = Mx[:nAnt]
+            BM = np.ma.dot(Bs, Mx)
+            BM[bl_drop] = np.ma.masked   # excluded baselines: no model
             R = BM - D
         if (pp == 1):
             R = pwrap2(R)
@@ -347,7 +425,11 @@ for fvis in files:
         dname = 'ant%s'%name
         adoneh5(fvis, M.T, dname)
         attrs = {'median':savM_med, 'wt-avg':savM_wta,  'min':savM_min}
+        if (pp >= 2):
+            attrs.update(sun_attrs)
         putAttrs(fvis, attrs, dest=dname)
+        if (pp >= 2 and use_nn):
+            adoneh5(fvis, 10.**np.ma.filled(Mx[nAnt], np.nan), 'ant%s_nn'%name)   # nearest-neighbour ratio, (nWin,)
         dname = 'ant%s_err'%name
         adoneh5(fvis, std, dname)
 
@@ -391,7 +473,8 @@ for fvis in files:
         print(sec.shape, freq.shape)
 
         D = np.ma.log10(Y2D).transpose((1,2,0))     # new shape (nBl, nChan, nWin)
-        M = solve_masked(B, D)                      # output shape (nAnt, nChan, nWin)
+        Mx = solve_masked(Bs, D)                    # output shape (nAnt[+1], nChan, nWin)
+        M = Mx[:nAnt]
         print(gdiff.shape, gdiff)
         M += (gdiff/10.).reshape((-1,1,1))          # Tsys is proportional to gain (linear)
                                                     # M(Tsys) is in log10 scale,
@@ -405,6 +488,9 @@ for fvis in files:
 
         Mout = M.transpose((2,0,1))
         adoneh5(fvis, Mout, 'antTsys2D%s'%sfx)      # log10(Tsys2D), shape: (nWin, nAnt, nChan)
+        putAttrs(fvis, sun_attrs, dest='antTsys2D%s'%sfx)
+        if (use_nn):
+            adoneh5(fvis, 10.**np.ma.filled(Mx[nAnt].T, np.nan), 'antTsys2D%s_nn'%sfx)   # ratio, (nWin, nChan)
 
         #fig, sub = plt.subplots(4,4,figsize=(16,12),sharex=True,sharey=True)
         fig = plt.figure(figsize=(16,12))
@@ -471,7 +557,8 @@ for fvis in files:
         print(sec.shape, freq.shape)
 
         D = np.ma.log10(Y2D).transpose((1,2,0))     # new shape (nBl, nChan, nWin)
-        lM = solve_masked(B, D)                      # output shape (nAnt, nChan, nWin)
+        lMx = solve_masked(Bs, D)                    # output shape (nAnt[+1], nChan, nWin)
+        lM = lMx[:nAnt]
         M = (10**lM)/1e6                             # convert back to linear scale in MJy
 
         vmin = z2min
@@ -483,6 +570,9 @@ for fvis in files:
 
         Mout = M.transpose((2,0,1))
         adoneh5(fvis, Mout, 'antSEFD2D%s'%sfx)      # SEFD2D, shape: (nWin, nAnt, nChan)
+        putAttrs(fvis, sun_attrs, dest='antSEFD2D%s'%sfx)
+        if (use_nn):
+            adoneh5(fvis, 10.**np.ma.filled(lMx[nAnt].T, np.nan), 'antSEFD2D%s_nn'%sfx)   # ratio, (nWin, nChan)
 
         #fig, sub = plt.subplots(4,4,figsize=(16,12),sharex=True,sharey=True)
         fig = plt.figure(figsize=(16,12))
