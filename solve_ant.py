@@ -25,6 +25,7 @@ chlim   = None
 sun_diam = 0.      # deg; >0: correct for a resolved source (uniform disk)
 free_nn = False    # free offset for nearest-neighbour baselines (coupling)
 min_bl  = 0.       # m; baselines shorter than this are excluded from the Tsys/SEFD solve
+auto_flag = 0.     # >0: flag antennas whose relative coherence (sensitivity) is below this fraction of the median
 
 
 def solve_masked(B, D):
@@ -93,6 +94,12 @@ options are:
     --minbl LEN         # exclude baselines shorter than LEN m from the log Tsys/SEFD solve
                         # (e.g. --minbl 1.5 drops the 1 m nearest-neighbour baselines, which suffer coupling)
                         # Tau and Phi solutions are not affected; default 0 (use all)
+    --autoflag THR      # automatically flag antennas with very low coherence (low sensitivity)
+                        # per-antenna relative coherence rho_i/median(rho) is estimated from the
+                        # median |winCoeffSub| (source fringe) over windows and the --chlim channels,
+                        # using |c_ij| ~ sqrt(rho_i rho_j)  ->  rho_i ~ exp(2*median_j log|c_ij|)
+                        # antennas with rho_i/median < THR are added to the --flag list, for all solves
+                        # (e.g. 0.2: SEFD more than ~5x the median); default 0 (off)
 
     if the fringe-stopped results (winTsys_fs, winTsys2D_fs, winSEFD2D_fs, winCoeffRFI)
     from show_fpga_window.py exist, they are also solved and saved with the '_fs' suffix
@@ -128,6 +135,8 @@ while (inp):
         sun_diam = float(inp.pop(0))
     elif (k == '--freenn'):
         free_nn = True
+    elif (k == '--autoflag'):
+        auto_flag = float(inp.pop(0))
     elif (k == '--minbl'):
         min_bl = float(inp.pop(0))
     elif (k == '--chlim'):
@@ -203,6 +212,43 @@ for fvis in files:
     nWin, nBl, nChan = winTsys2D.shape
 
 
+    # antenna flags for this file: --flag list, plus low-coherence antennas with --autoflag
+    flags = list(ant_flag)
+    coh_rel = np.full(nAnt, np.nan)
+    if (auto_flag > 0.):
+        csub = getData(fvis, 'winCoeffSub')     # (nWin, nBl, nChan), source fringe part of the coeff
+        if (csub is None):
+            print('--autoflag: winCoeffSub not found, no auto-flagging')
+        else:
+            mc = np.ma.median(np.ma.abs(csub[tsel][:,:,chlim[0]:chlim[1]]), axis=2)   # (nWin, nBl)
+            lc = np.ma.log(np.ma.median(mc, axis=0))                                   # (nBl,)
+            lc = np.ma.masked_where(~np.isfinite(np.ma.filled(lc, np.nan)), lc)
+            bl_ij = [(ai, aj) for ai in range(nAnt-1) for aj in range(ai+1, nAnt)]
+            for it in range(3):     # iterate: exclude flagged partners from each antenna's median
+                a = np.full(nAnt, np.nan)
+                for ai in range(nAnt):
+                    v = [lc[b] for b, (i, j) in enumerate(bl_ij) if ai in (i, j) and (j if i == ai else i) not in flags
+                         and not np.ma.is_masked(lc[b])]
+                    if (len(v) >= 2):
+                        a[ai] = np.median(v)
+                good = [ai for ai in range(nAnt) if ai not in flags and np.isfinite(a[ai])]
+                if (len(good) < 3):
+                    break
+                coh_rel = np.exp(2.*(a - np.median(a[good])))
+                new = [ai for ai in range(nAnt) if ai not in flags and not (coh_rel[ai] >= auto_flag)]
+                if (not new):
+                    break
+                flags += new
+            auto = sorted(set(flags) - set(ant_flag))
+            print('--autoflag %.2f: relative coherence' % auto_flag, np.round(coh_rel, 2))
+            print('--autoflag: flagged antennas', auto, '(all flags: %s)' % sorted(flags))
+
+    # reference antenna for Tau/Phi must not be flagged
+    aref_f = aref
+    if (aref in flags):
+        aref_f = [ai for ai in range(nAnt) if ai not in flags][0]
+        print('reference antenna %d is flagged, using %d for Tau and Phi' % (aref, aref_f))
+
     # solve X for equation: A . X = D   (Tau and Phi)
     # solve X for equation: B . X = D   (log(Tsys) and log(SEFD))
     # construct matrix A: 
@@ -212,7 +258,7 @@ for fvis in files:
     for ai in range(nAnt-1):
         for aj in range(ai+1, nAnt):
             b += 1
-            if (ai in ant_flag or aj in ant_flag):
+            if (ai in flags or aj in flags):
                 #winTAU.mask[:,b] = True
                 #winPHI.mask[:,b] = True
                 #winTsys.mask[:,b] = True
@@ -287,7 +333,9 @@ for fvis in files:
             else:
                 use_nn = False
                 print('--freenn ignored: no nearest-neighbour baseline left after --minbl')
-    sun_attrs = {'sunres_diam': sun_diam, 'freenn': int(use_nn), 'minbl': min_bl}
+    sun_attrs = {'sunres_diam': sun_diam, 'freenn': int(use_nn), 'minbl': min_bl,
+                 'flag_ants': np.array(sorted(flags), dtype=int), 'autoflag_thr': auto_flag,
+                 'coh_rel': np.nan_to_num(coh_rel, nan=-1.)}
 
     # pseudo-inverse
     Ainv = pinv(A)
@@ -327,7 +375,7 @@ for fvis in files:
 
         if (pp < 2):
             M = np.dot(Ainv, D)  # shape (nAnt, nWin)
-            M -= M[aref,:]   # Ant0 as reference Tau
+            M -= M[aref_f,:]   # reference antenna (aref, or first unflagged)
             R = np.dot(A, M) - D
         else:
             Mx = solve_masked(Bs, D)  # shape (nAnt[+1], nWin)
@@ -427,6 +475,8 @@ for fvis in files:
         attrs = {'median':savM_med, 'wt-avg':savM_wta,  'min':savM_min}
         if (pp >= 2):
             attrs.update(sun_attrs)
+        else:
+            attrs.update({'flag_ants': np.array(sorted(flags), dtype=int), 'aref': aref_f})
         putAttrs(fvis, attrs, dest=dname)
         if (pp >= 2 and use_nn):
             adoneh5(fvis, 10.**np.ma.filled(Mx[nAnt], np.nan), 'ant%s_nn'%name)   # nearest-neighbour ratio, (nWin,)
@@ -524,7 +574,9 @@ for fvis in files:
                 #ax2.set_xticks([])
                 #ax2.set_xticklabels([])
 
-            ax2.plot(10**(M_freq[ai]), freq, label='med')
+            prof = 10**np.ma.filled(M_freq[ai], np.nan)
+            if (np.isfinite(prof).any()):     # flagged antenna: all masked, nothing to plot
+                ax2.plot(prof, freq, label='med')
             #ax2.plot(10**(M_freq2[ai]), freq, label='min')
             ax2.set_xlim(vmin, vmax)
             ax2.set_ylim(freq[0], freq[-1])
@@ -606,7 +658,9 @@ for fvis in files:
                 #ax2.set_xticks([])
                 #ax2.set_xticklabels([])
 
-            ax2.plot(M_freq[ai], freq, label='med')
+            prof = np.ma.filled(M_freq[ai], np.nan)
+            if (np.isfinite(prof).any()):     # flagged antenna: all masked, nothing to plot
+                ax2.plot(prof, freq, label='med')
             #ax2.plot(10**(M_freq2[ai]), freq, label='min')
             ax2.set_xlim(vmin, vmax)
             ax2.set_ylim(freq[0], freq[-1])
@@ -641,7 +695,7 @@ for fvis in files:
         for ai in range(nAnt-1):
             for aj in range(ai+1, nAnt):
                 b += 1
-                if (ai in ant_flag or aj in ant_flag):
+                if (ai in flags or aj in flags):
                     continue
                 mat_rfi[ai,aj] = mat_rfi[aj,ai] = med_rfi[b]
                 mat_src[ai,aj] = mat_src[aj,ai] = med_src[b]
