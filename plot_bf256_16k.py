@@ -43,6 +43,7 @@ nFWin   = 1     # number of windows to read per file
 sepWin  = 100   # separation of windows in blocks
 sepSec  = blocklen*2.56e-6*sepWin   # separation of windows in sec
 subicb  = False # whether to subtract the incoherent beam
+per_beam = True # normalize beams individually if True; with global mean if False
 
 
 usage   = '''
@@ -69,6 +70,7 @@ options are:
                     # (default is to plot the normalized intensity)
     --both          # plot both raw and normalized intensities
     --subicb        # subtract the incoherent beam
+    --global        # normalize intensity to global mean
 
 ''' % (pg, nSum, blocklen, nFWin)
 
@@ -120,6 +122,8 @@ while (inp):
         pts = [0, 1]
     elif (k == '--subicb'):
         subicb = True
+    elif (k == '--global'):
+        per_beam = False
     elif (k.startswith('-')):
         sys.exit('unknown option: %s'%k)
     else:
@@ -277,10 +281,16 @@ if (not os.path.isdir(odir2)):
     call('mkdir %s'%odir2, shell=True)
 
 ## 256 beams in one plot
-if (nRow2 == nRow):
-    png = '%s/norm.256beams.png' % (odir2)
+if (per_beam):
+    if (nRow2 == nRow):
+        png = '%s/norm.256beams.png' % (odir2)
+    else:
+        png = '%s/norm.256beams_sel.png' % (odir2)
 else:
-    png = '%s/norm.256beams_sel.png' % (odir2)
+    if (nRow2 == nRow):
+        png = '%s/norm2.256beams.png' % (odir2)
+    else:
+        png = '%s/norm2.256beams_sel.png' % (odir2)
 
 hratio = np.zeros(nRow2*2)
 hratio[0::2] = 2
@@ -331,8 +341,10 @@ if (combine):
         axp.set_title('%s: row %d, chlim:[%d,%d]%s'%(dataset, j,chlim[0],chlim[1],misc))
         for ai in range(nAnt):
             ax = sub[nRow2-1-jj, ai]
-            ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
-            #ax.pcolormesh(X,Y,arrNInt2[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
+            if (per_beam):
+                ax.pcolormesh(X,Y,arrNInt[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
+            else:
+                ax.pcolormesh(X,Y,arrNInt2[:,:,j,ai].T, vmin=vmin, vmax=vmax, shading='auto')
 
             prof = mapNInt[:,j,ai]
             prof2 = mapNInt2[:,j,ai]

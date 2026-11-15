@@ -125,7 +125,7 @@ rows    = None
 aref    = None
 theta_rot = None
 ## IAA ant beam width in deg
-EW_hwhm = 30.
+EW_hwhm = 33.
 att1d = False    # True: old separable attenuation (--att1d)
 NS_hwhm = 46.
 ## solar flux placeholder

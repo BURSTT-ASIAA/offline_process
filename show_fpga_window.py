@@ -46,9 +46,9 @@ angsep  = 3.
 poslim  = 0.5
 possep  = 0.1
 gant    = 6.0       # antenna max gain in dB
-Ehwhm   = 30.       # E-plane half-power half width in deg
+Ehwhm   = 33.       # E-plane half-power half width in deg
+Hhwhm   = 46.       # H-plane half-power half width in deg
 att1d = False    # True: old separable attenuation (--att1d)
-Hhwhm   = 60.       # H-plane half-power half width in deg
 dellim  = 150.
 delsep  = 0.5
 body    = 'sun'
@@ -57,11 +57,11 @@ revpos  = False
 swapEH  = False
 zlim    = [0., 300.]
 tlim    = None
+clight  = 2.998e8
 freq_ref = 400e6    # reference frequency to scale the SEFD
-flam_ref = 2.998e8/freq_ref # reference lambda
+flam_ref = clight/freq_ref # reference lambda
 site    = None
 theta_rot = None
-clight  = 2.998e8
 
 
 usage = '''

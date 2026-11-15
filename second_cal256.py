@@ -133,7 +133,7 @@ f610 = 7.0e5 # Jy
 ## for IAA LPDA
 G0 = 8.0 # dB
 ## beam width
-EW_hwhm = 30 # deg, IAA
+EW_hwhm = 33 # deg, IAA
 att1d = False    # True: old separable attenuation (--att1d)
 NS_hwhm = 46 # deg, IAA
 
