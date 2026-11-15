@@ -32,8 +32,8 @@ UTCOffset_hr = 8  #Taiwan time (UTC+8)
 
 theta_off_deg_1d = 0 # deg
 
-fmin = 400
-fmax = 800
+fmin = 300
+fmax = 700
 nChan = 1024
 chlim = [0, nChan]
 
