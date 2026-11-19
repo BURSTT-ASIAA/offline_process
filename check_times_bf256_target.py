@@ -50,8 +50,8 @@ tlim = [-2, 2]    # plot range in hours from transit time
 # attenuation
 # MobileMark LPDA;  Ehwhm, Hhwhm= (40, 35) for MED
 Antenna = {
-    "MMLPDA"    : {"Ehwhm": 30., "Hhwhm": 60.},
-    "ASIAALPDA" : {"Ehwhm": 30., "Hhwhm": 45.},
+    "MMLPDA"    : {"Ehwhm": 40., "Hhwhm": 48.},
+    "ASIAALPDA" : {"Ehwhm": 33., "Hhwhm": 46.},
     "MED"       : {"Ehwhm": 40., "Hhwhm": 35.}
 }
 
