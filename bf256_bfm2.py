@@ -4,7 +4,7 @@
 
 bfm2_256(dcal, order, theta_deg, mask, scale) -> M, shape (128 ch, 16 NS beams, 16 rows), complex
     NS beam y[ns] = sum_r M[ch, ns, r] x[r]   (x = EW-beamformed baseband of row r)
-find_log(t_unix) -> (path, dict) of the latest saved bfm2 log written before t (UTC names, burstt16 ring0)
+find_log(t_unix) -> (path, dict) of the latest saved bfm2 log written before t (UTC names, any host, ring0)
     dict has dcal, theta_deg, mask, scale parsed from the log (raw_cmd, theta_deg, mask)
 matrix_for(t_unix, order) -> (M, info): the matrix that was loaded at time t
 
@@ -45,7 +45,8 @@ def log_time(fn):
 
 
 def find_log(t_unix, logdir=LOGDIR, ring=0):
-    c = [(log_time(f), f) for f in glob.glob('%s/bfm2-burstt16-ring%d-*-cal_*.npz' % (logdir, ring))]
+    # any host name (logs were written as burstt16 until 11/16, and are now named burstt15)
+    c = [(log_time(f), f) for f in glob.glob('%s/bfm2-*-ring%d-*-cal_*.npz' % (logdir, ring))]
     c = [x for x in c if x[0] is not None and x[0] < t_unix]
     if not c:
         return None, None
