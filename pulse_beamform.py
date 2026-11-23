@@ -30,8 +30,12 @@ options:
     --pad SEC       half window around the expected arrival in each channel (default 0.05)
     --nfft N        up-channelization FFT length (default 16; 1 = none)
     --tbin SEC      output time bin (default 0.25e-3, rounded to a multiple of N x 2.56 us)
-    --flip/--noflip reverse the sub-channel order within each channel (default --flip: the FFT of a
-                    390-kHz channel comes out spectrally inverted; verified on 3 Crab GPs, S/N 48 vs 12)
+    --flip/--noflip undo the spectral inversion within each channel (default --flip: the FFT of a
+                    390-kHz channel comes out spectrally inverted; verified on 3 Crab GPs, S/N 48 vs 12).
+                    The inversion maps sub-channel offset m -> -m (m = -N/2 .. N/2-1, Nyquist bin onto itself).
+                    Before 2026-11-23 this was a plain reversal (m -> -m-1), which labelled every sub-channel
+                    one sub-channel (DF/N) too low and biased the DM low by ~ 2 DM DF/(N f) (FRB 20261119,
+                    DM 281.8: nfft 16 -0.06, nfft 64 -0.015); old products are equivalent to --foff -1/N
     --foff F        sub-channel frequency offset in units of the 390-kHz channel (default 0:
                     channel k centred at 300 + 0.390625 k MHz; 0.5 = k is the lower edge)
     --orders 'o..'  orders to process (default all: 16 for BF512, 8 for BF256, 2 for BF64 = the two 512-ch halves)
@@ -503,7 +507,7 @@ for o in orders:
     if nfft > 1:
         Y = np.fft.fftshift(np.fft.fft(Y, axis=1), axes=1)
         if flip:
-            Y = Y[:, ::-1]
+            Y = np.roll(Y[:, ::-1], 1, axis=1)     # offset m -> -m (bin j <- bin N-j mod N); a plain [::-1] is m -> -m-1
     pw = (Y.real**2 + Y.imag**2).transpose(0, 2, 1).reshape(nblk, nsub).astype(np.float32)   # (t, ch*nfft)
     fo = fsub[o*nsub:(o+1)*nsub]
     tarr = tref - KDM*dm*(1/300.**2 - 1/fo**2)
@@ -584,7 +588,7 @@ dch = np.nanmean(np.where(good, dn, np.nan).reshape(nOut, -1, nfft), 2)*np.sqrt(
 tag = tag0 + ('_n%d' % nfft) + ('_flip' if flip else '') + xtag
 np.savez(os.path.join(odir, tag + '.npz'), dch=dch, good=good, fsub=fsub, tgrid=tgrid, prof=prof, prof0=prof0, wexp=wexp,
          boxcar=np.array(bx), snr_int=snb, width=nbest*dtb, tcen=tc,
-         t300=t300, toff=toff, dm=dm, beam=beam, ew=col, ns_deg=ns_deg if BF64 else np.nan, nb=nb, nfft=nfft, flip=flip, foff=foff, info=info)
+         t300=t300, toff=toff, dm=dm, beam=beam, ew=col, ns_deg=ns_deg if BF64 else np.nan, nb=nb, nfft=nfft, flip=flip, flipfix=True, foff=foff, info=info)
 
 import warnings; warnings.simplefilter('ignore')
 import matplotlib; matplotlib.use('Agg')
