@@ -65,7 +65,18 @@ options:
     --src NAME      known source used instead of the FUS beam centre: astropy SkyCoord.from_name (e.g. B0329+54,
                     'PSR J1935+2154', 'Cyg A'; network), Sun, Moon, or an offline table (B0329+54, Crab, B0950+08,
                     B1133+16, B1933+16, Cas A, Cyg A, Tau A, Vir A)
-    --ew COL        BF64 EW column (0-15) to use instead of the automatic pick
+    --ew COL        BF64 EW direction in column units (0-15) instead of the computed one; a fractional value is
+                    re-steered (below), an integer one is that recorded column
+    --ew_nearest    BF64: use the nearest recorded EW column (before 2026-11-25 the only choice) instead of re-steering
+                    the EW beam to the computed direction
+  BF64 EW re-steering (default): the 16 recorded EW beams of a row are B = D x, x = the row's calibrated antenna
+  voltages, D[c, a] = exp(-2 pi i pos_a sin(th_c)/lam_f) the zcu216 -t pos steering (true delay; output column c =
+  steering index 15-c, np.flip; sin(th_b) = lam400/(16 sep) (b + beam0) + theta_off). A beam toward column u (any
+  real value) is s(u) D^-1 B: the calibration and the antenna order cancel, an integer u gives that column exactly.
+  D, beam0, theta_off and the antenna positions are read from the zcu216 bfm1 logs in effect at the event.
+  Halfway between columns away from 400 MHz the weights grow (|w| up to ~5): system noise is unchanged, but the
+  FPGA's 4-bit requantization noise of the beams is amplified by |w|^2 (reported as 'requant gain').
+    --bfm1dir DIR   zcu216 EW-matrix log folder (default /home/ubuntu/burstt-log/bfm1)
     --ew_beam0 B    beam0 of the BF64 EW stage for the automatic pick (default -7.5, the zcu216 --beam0 in the bfm1
                     log; B0329 on 11/05 and 11/14 peaked ~0.5 column higher than this predicts, as if -8.0)
     --rot DEG       array rotation of the BF64 station (default Rotate_deg of getStationConfig)
@@ -116,6 +127,7 @@ logdir = '/home/ubuntu/burstt-log/bfm2'
 odir = '.'
 bfm2log, sep64, mask64, flim0 = None, None, None, None
 radec, src, site, fus_beam0, ew_man, nsdeg_man, bitmap_mode = None, None, 'GRN', (-7.5, -7.5), None, None, 'auto'
+ew_nearest, bfm1dir = False, '/home/ubuntu/burstt-log/bfm1'
 EW0_64 = -7.5                # BF64 EW stage beam0 (zcu216 -t pos): column c points at l = lam400/(16 dEW) (c + EW0_64)
 rot_man = None
 NF, rows = 16, np.arange(14)   # packets (FPGAs = physical rows) per chunk, rows used
@@ -160,7 +172,9 @@ while inp:
     elif k == '--bfm2log': bfm2log = inp.pop(0)
     elif k == '--fus_beam0': fus_beam0 = tuple(float(x) for x in inp.pop(0).split())
     elif k == '--src': src = inp.pop(0)
-    elif k == '--ew': ew_man = int(inp.pop(0))
+    elif k == '--ew': ew_man = float(inp.pop(0))
+    elif k == '--ew_nearest': ew_nearest = True
+    elif k == '--bfm1dir': bfm1dir = inp.pop(0)
     elif k == '--ew_beam0': EW0_64 = float(inp.pop(0))
     elif k == '--rot': rot_man = float(inp.pop(0))
     elif k == '--ns_deg': nsdeg_man = float(inp.pop(0))
@@ -171,6 +185,79 @@ while inp:
     elif k == '--radec': radec = inp.pop(0).split()
     elif k == '--site': site = inp.pop(0)
     else: sys.exit('unknown option %s' % k)
+def ew_setup(t_unix):
+    '''zcu216 EW-stage parameters in effect at t_unix, from the latest bfm1 log of each FPGA before it (logs more than
+    2 days older than the newest of them are ignored: retired FPGAs): beam0, theta_off, antenna positions'''
+    import re, shlex
+    last = {}
+    for f in glob(os.path.join(bfm1dir, 'bfm-*-fpga*.npz')):
+        m_ = re.match(r'bfm-(\d{8}_\d{6})-fpga(\d+)\.npz$', os.path.basename(f))
+        if not m_:
+            continue
+        tl = datetime.strptime(m_.group(1), '%Y%m%d_%H%M%S').replace(tzinfo=timezone.utc).timestamp()
+        if tl < t_unix and tl > last.get(m_.group(2), (0, ''))[0]:
+            last[m_.group(2)] = (tl, f)
+    if last:
+        tmax = max(v[0] for v in last.values())
+        last = {k: v for k, v in last.items() if v[0] > tmax - 2*86400}
+    pars = []
+    for k, (tl, f) in sorted(last.items()):
+        try:
+            cmd = shlex.split(np.load(f, allow_pickle=True)['attrs'].item()['cmd'])
+        except Exception:
+            continue
+        g = lambda o, d: cmd[cmd.index(o) + 1] if o in cmd else d
+        b0 = float(g('--beam0', -7.5))
+        th = float(g('--theta_off', 0.))
+        ac = g('--aconf', None)
+        pos = None
+        if ac:
+            for d_ in ('', '/data/rfsoc/python_zcu216'):
+                fa = os.path.join(d_, ac)
+                if os.path.isfile(fa):
+                    pos = np.loadtxt(fa, usecols=(1,)); break
+        pars.append(dict(fpga=k, log=os.path.basename(f), beam0=b0, theta_off=th,
+                         pos=np.sort(pos) if pos is not None else None, type=g('-t', 'pos')))
+    sepd = bf64_bfm2.station(site)['Spacing_EW_m']
+    pos = np.arange(NB1)*sepd
+    b0, th = -7.5, 0.
+    if pars:
+        b0s = {q['beam0'] for q in pars}; ths = {q['theta_off'] for q in pars}
+        poss = [q['pos'] for q in pars if q['pos'] is not None]
+        if len(b0s) > 1 or len(ths) > 1:
+            print('WARNING: the FPGAs use different EW beam0 %s / theta_off %s; using the first' % (sorted(b0s), sorted(ths)))
+        if any(q['type'] != 'pos' for q in pars):
+            print('WARNING: EW matrix type not "pos" in %s' % [q['log'] for q in pars if q['type'] != 'pos'])
+        b0, th = pars[0]['beam0'], pars[0]['theta_off']
+        if poss:
+            pos = poss[0]
+            if any(len(p_) != len(pos) or np.abs(p_ - pos).max() > 1e-6 for p_ in poss):
+                print('WARNING: the rows have different antenna position sets; using %s' % pos)
+    pos = pos - pos.mean()
+    sep = float(np.median(np.diff(np.sort(pos))))
+    return dict(beam0=b0, theta_off=th, pos=pos, sep=sep, logs=[q['log'] for q in pars])
+
+
+def ew_weights(fMHz, u, ei, eps=1e-5):
+    '''(nch, 16) weights: beam toward EW column u = sum_c w[ch, c] B_c (regularized s D^-1, eps x largest eigenvalue)
+    and per channel the coherent gain toward u (1 = an ideal beam) and the requantization-noise gain |w|^2'''
+    lam = bf64_bfm2.C/(np.asarray(fMHz, float)*1e6)
+    def sint(idx):                      # sin(theta) of steering index idx (zcu216: + theta_off in degrees)
+        x = bf64_bfm2.LAM400/(NB1*ei['sep'])*(np.asarray(idx, float) + ei['beam0'])
+        return np.sin(np.arcsin(np.clip(x, -1, 1)) + np.radians(ei['theta_off'])) if ei['theta_off'] else x
+    sb = sint(NB1 - 1 - np.arange(NB1))                                   # output column c = steering index 15-c
+    st = sint(NB1 - 1 - u)
+    D = np.exp(-2j*np.pi*ei['pos'][None, None, :]*sb[None, :, None]/lam[:, None, None])   # (ch, c, a)
+    sv = np.exp(-2j*np.pi*ei['pos'][None, :]*st/lam[:, None])                            # (ch, a)
+    A = D @ np.conj(np.transpose(D, (0, 2, 1)))                                           # (ch, c, c)
+    ev = np.linalg.eigvalsh(A)[:, -1]
+    A = A + eps*ev[:, None, None]*np.eye(NB1)[None]
+    rhs = np.einsum('fca,fa->fc', D, np.conj(sv))                                          # D s^H
+    w = np.conj(np.linalg.solve(A, rhs))                                                   # (ch, c): w = s D^H A^-1
+    gain = np.abs(np.einsum('fc,fca,fa->f', w, D, np.conj(sv)))/len(ei['pos'])
+    return w.astype(np.complex64), gain, np.sum(np.abs(w)**2, axis=1)
+
+
 cdir = os.path.join(odir, 'vcache')
 os.makedirs(cdir, exist_ok=True)
 
@@ -268,21 +355,32 @@ elif BF64:
             print('    FUS cell edge %s: J2000 %s -> %s EW col %.1f, NS %.1f deg' % (lab, _rd(r_, d_), site, p_[4], p_[5]))
     az, el, lg, mg, xcol, nsd = _pick(ra_d, dec_d)
     col_auto = int(np.clip(np.rint(xcol), 0, NB1 - 1))
-    col = ew_man if ew_man is not None else col_auto
+    ucol = float(np.clip(ew_man if ew_man is not None else xcol, 0, NB1 - 1))   # EW direction in column units
+    col = int(np.rint(ucol))                                                # nearest recorded column
+    resteer = not ew_nearest and abs(ucol - col) > 0.005
+    if not resteer:
+        ucol = float(col)
     ns_deg = nsdeg_man if nsdeg_man is not None else nsd
     ns = 0                                                      # the steered NS beam (index in the offline matrix)
     print('%s (lat %s, rot %g deg): az %.1f el %.1f, l %+.3f m %+.3f -> EW col %.2f (EW beam0 %g; auto %d%s), NS %.2f deg%s' %
           (site, stc['Latitude'], stc.get('Rotate_deg', 0.), az, el, lg, mg, xcol, EW0_64, col_auto,
-           ', using --ew %d' % col if ew_man is not None else '', ns_deg, ' (--ns_deg)' if nsdeg_man is not None else ''))
+           ', using --ew %g' % ew_man if ew_man is not None else '', ns_deg, ' (--ns_deg)' if nsdeg_man is not None else ''))
     if el < 0:
         print('WARNING: the direction is below the horizon at %s' % site)
-    if ew_man is None and abs(xcol - np.rint(xcol)) > 0.35 and 0 <= xcol <= NB1 - 1:
+    if ew_nearest and ew_man is None and abs(xcol - np.rint(xcol)) > 0.35 and 0 <= xcol <= NB1 - 1:
         print('NOTE: the direction falls near the boundary of EW columns %d and %d; consider also --ew %d' %
               (np.floor(xcol), np.floor(xcol) + 1, np.floor(xcol) + (1 if col_auto == np.floor(xcol) else 0)))
     if not -0.5 <= xcol <= NB1 - 0.5:
         print('WARNING: the direction is outside the %s EW beam fan (col %.1f); the edge column is used' % (site, xcol))
     if ew_man is not None and abs(ew_man - xcol) > 1:
-        print('WARNING: --ew %d is %.1f beams from the computed direction' % (ew_man, abs(ew_man - xcol)))
+        print('WARNING: --ew %g is %.1f beams from the computed direction' % (ew_man, abs(ew_man - xcol)))
+    ew_info = ew_setup(t300) if resteer else None
+    if resteer:
+        print('EW re-steered to column %.2f (recorded columns %d, %d): zcu216 logs %s, beam0 %g, theta_off %g deg, '
+              'antenna spacing %.2f m' % (ucol, np.floor(ucol), np.floor(ucol) + 1,
+              ', '.join(ew_info['logs']) or 'none (defaults)', ew_info['beam0'], ew_info['theta_off'], ew_info['sep']))
+    else:
+        print('EW column %d (recorded beam, no re-steering%s)' % (col, ', --ew_nearest' if ew_nearest else ''))
     # NS matrix parameters per slot (ring): explicit log, else the log entry in effect at the event (for row mask,
     # NS spacing and FPGA delays; its real-time beam angles are only reported); the beam is steered to ns_deg
     nsp = {}
@@ -294,7 +392,8 @@ elif BF64:
             mk[mask64] = 0.
         nsp[sl] = dict(log=lf_, theta=np.full(4, ns_deg), theta_rt=li.get('theta_deg'),
                        sep=sep64 if sep64 is not None else li.get('sep', stc['Spacing_NS_m']), mask=mk, delay=li.get('delay_ns'))
-    tag0 = 'gp_%s_%s_f%d_e%02d_n%+.1f_bf64' % (ymd, hms.replace('.', ''), beam, col, ns_deg)
+    tag0 = 'gp_%s_%s_f%d_e%s_n%+.1f_bf64' % (ymd, hms.replace('.', ''), beam,
+                                            '%05.2f' % ucol if resteer else '%02d' % col, ns_deg)
     print('BF64 files (slot: header order, file): %s;  grid %.0f MHz + 0.390625 k' %
           ({k: (hord[v], os.path.basename(v)) for k, v in sorted(files64.items())}, flim0))
     for sl, q in sorted(nsp.items()):
@@ -326,6 +425,8 @@ if pad > PADX:
 s_, g_, c_ = np.meshgrid(np.arange(NSTK), np.arange(NCH//2), np.arange(2), indexing='ij')
 e = ((s_*(NCH//2) + g_)*NB1 + col)*2 + c_
 bidx = 64 + (e ^ 1).reshape(NSTK, NCH)                 # (stack, ch), after the 64 B packet header
+e16 = ((s_[..., None]*(NCH//2) + g_[..., None])*NB1 + np.arange(NB1))*2 + c_[..., None]
+bidx16 = 64 + (e16 ^ 1).reshape(NSTK, NCH, NB1)        # (stack, ch, EW column)
 LUT = np.empty(256, np.complex64)
 for b in range(256):
     i, q = b & 15, b >> 4
@@ -430,6 +531,13 @@ def extract(o):
     use_win = chwin or (tch.max() - tch.min()) > CHWIN_S
     nbad = nmiss = nseq = nbm = 0
     blk = 4096
+    Wew = None
+    if BF64 and resteer:
+        Wew, gew, qew = ew_weights(fe, ucol, ew_info)
+        blk = 256                                      # 16 columns unpacked per packet (little free RAM)
+        print('order %02d: EW re-steering to column %.2f: coherent gain median %.3f (min %.3f), |w| median %.2f '
+              '(max %.2f), requant gain |w|^2 median %.2f' % (o, ucol, np.median(gew), gew.min(), np.median(np.sqrt(qew)),
+              np.sqrt(qew).max(), np.median(qew)), flush=True)
     if use_win:
         s0 = np.clip(np.floor((tlo - t0)/TF).astype(int), ck0*NSTK, None)       # first frame of each channel's window
         nwin = int(np.ceil((thi - tlo).max()/TF)) + NSTK
@@ -459,7 +567,10 @@ def extract(o):
             nbm += (ok & ~bq).sum()
             ok &= bq
         nbad += (~ok).sum()
-        x = LUT[Q[:, :, bidx[:, act]]]                  # (n, rows, stack, ch)
+        if Wew is not None:                             # re-steered: sum_c w[ch, c] B_c of the 16 recorded columns
+            x = np.einsum('nrsck,ck->nrsc', LUT[Q[:, :, bidx16[:, act, :]]], Wew[act], optimize=True)
+        else:
+            x = LUT[Q[:, :, bidx[:, act]]]              # (n, rows, stack, ch)
         x *= ok[:, :, None, None]
         x = x.transpose(0, 2, 1, 3).reshape(-1, len(rows), x.shape[-1])
         yb = np.einsum('frc,cr->fc', x, M[act])
@@ -473,7 +584,7 @@ def extract(o):
     tfirst = t0 + s0*TF if use_win else t0 + ck0*NSTK*TF
     info = dict(file=fn, t0=float(t0), nck=int(nCk), lin=int(lin), nbad=int(nbad), nmiss=int(nmiss), nseq=int(nseq),
                 nbm=int(nbm), bitmap=bool(use_bm), span=float((ck1 - ck0)*NSTK*TF), mode=mode, dcal=dcal, cpf=int(cpf),
-                chwin=bool(use_win))
+                chwin=bool(use_win), ew=float(ucol) if BF64 else None, resteer=bool(BF64 and resteer))
     np.savez(fc, y=y, tfirst=tfirst, info=json.dumps(info))      # JSON: readable under any numpy version
     ntot = (ck1 - ck0)*len(rows)
     print('order %02d: %s  file start %s, %.3f s read; packets flagged %d of %d (%.2f%%): no marker %d, off-sequence %d, '
@@ -588,7 +699,7 @@ dch = np.nanmean(np.where(good, dn, np.nan).reshape(nOut, -1, nfft), 2)*np.sqrt(
 tag = tag0 + ('_n%d' % nfft) + ('_flip' if flip else '') + xtag
 np.savez(os.path.join(odir, tag + '.npz'), dch=dch, good=good, fsub=fsub, tgrid=tgrid, prof=prof, prof0=prof0, wexp=wexp,
          boxcar=np.array(bx), snr_int=snb, width=nbest*dtb, tcen=tc,
-         t300=t300, toff=toff, dm=dm, beam=beam, ew=col, ns_deg=ns_deg if BF64 else np.nan, nb=nb, nfft=nfft, flip=flip, flipfix=True, foff=foff, info=info)
+         t300=t300, toff=toff, dm=dm, beam=beam, ew=ucol if BF64 else col, ns_deg=ns_deg if BF64 else np.nan, nb=nb, nfft=nfft, flip=flip, flipfix=True, foff=foff, info=info)
 
 import warnings; warnings.simplefilter('ignore')
 import matplotlib; matplotlib.use('Agg')
@@ -602,7 +713,7 @@ ax[0].axvspan((tc - nbest*dtb/2)*1e3, (tc + nbest*dtb/2)*1e3, color='#C44E52', a
               label='best boxcar %.2f ms, S/N %.1f' % (nbest*dtb*1e3, snb))
 ax[0].legend(fontsize=7, loc='upper right')
 ax[0].set_ylabel('S/N (band sum)')
-bstr = ('FUS beam %d -> %s EW %d, NS %.1f deg' % (beam, site, col, ns_deg)) if BF64 else 'beam %d (NS %d, EW %d)' % (beam, ns, col)
+bstr = ('FUS beam %d -> %s EW %s, NS %.1f deg' % (beam, site, '%.2f' % ucol if resteer else '%d' % col, ns_deg)) if BF64 else 'beam %d (NS %d, EW %d)' % (beam, ns, col)
 ax[0].set_title('%s %s %s UTC  %s  DM %.2f\nnfft %d (%.1f kHz), bin %.3f ms; t=0: reported t300 %+.0f ms; peak S/N %.1f at %+.2f ms\nf$^{-%g}$-weighted band sum; best boxcar %.2f ms: integrated S/N %.1f' %
                 (mode.upper(), ymd, hms, bstr, dm, nfft, DF/nfft*1e3, nb*tsub*1e3, toff*1e3, prof[pk], tms[pk], wexp, nbest*dtb*1e3, snb), fontsize=9.5)
 nf = 8
