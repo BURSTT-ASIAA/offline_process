@@ -12,6 +12,10 @@ syntax:
     the time is the reported arrival time at 300 MHz (UTC)
     BF512: beam_id = ns*32 + ew_col; 16 orders x 60 ch; files /burstt1*/disk*/baseband/baseband*_orderOO_<ts>Z_trig
     BF256: beam_id = ns*16 + ew_col;  8 orders x 128 ch; files /burstt1*/disk*/data/ring?.<ts>Z.trig.oO.bin
+           Default: the trigger beam as recorded (EW column, real-time NS beam). With --src / --radec the beam is
+           pointed at the source instead (Fushan station frame, --site FUS): the EW beam is re-steered from the 16
+           recorded EW beams (as BF64, from the zcu216 bfm1 logs) and the NS stage is steered offline to the source's
+           NS angle with the cal, row mask and scale of the real-time matrix. --ew (fractional) / --ns_deg override.
     BF64:  beam_id = the Fushan (BF256) trigger beam id, ns*16 + ew_col. The GRN (or --site) beam is picked from it:
            the FUS beam centre (FUS beam0 (EW, NS) = (-7.5, -7.5) unless --fus_beam0) is taken to J2000 at the event
            time and back to the BF64 station (latitude/longitude and array rotation from getStationConfig); the EW
@@ -77,6 +81,11 @@ options:
   Halfway between columns away from 400 MHz the weights grow (|w| up to ~5): system noise is unchanged, but the
   FPGA's 4-bit requantization noise of the beams is amplified by |w|^2 (reported as 'requant gain').
     --bfm1dir DIR   zcu216 EW-matrix log folder (default /home/ubuntu/burstt-log/bfm1)
+    --ew_eps E      re-steering weights s D^H (D D^H + E lmax)^-1 (default 0.01). Above 400 MHz the 1-m EW spacing exceeds
+                    lam/2, some recorded beams alias and D is near-singular (427, 457, 492, 533 MHz ...): the exact
+                    inverse (E -> 0) then has |w| >> 1 and amplifies the 4-bit requantization noise. E = 0.01 maximizes
+                    S/N for requant noise of ~1-3% of the beam power (model: S/N within 1-3% of an ideal beam at
+                    300-500 MHz, 5-15% below it at 500-700 MHz between columns)
     --ew_beam0 B    beam0 of the BF64 EW stage for the automatic pick (default -7.5, the zcu216 --beam0 in the bfm1
                     log; B0329 on 11/05 and 11/14 peaked ~0.5 column higher than this predicts, as if -8.0)
     --rot DEG       array rotation of the BF64 station (default Rotate_deg of getStationConfig)
@@ -128,6 +137,9 @@ odir = '.'
 bfm2log, sep64, mask64, flim0 = None, None, None, None
 radec, src, site, fus_beam0, ew_man, nsdeg_man, bitmap_mode = None, None, 'GRN', (-7.5, -7.5), None, None, 'auto'
 ew_nearest, bfm1dir = False, '/home/ubuntu/burstt-log/bfm1'
+ew_eps = 1e-2      # EW re-steering regularization (x the largest eigenvalue of D D^H): S/N-optimal for ~1-3% requant noise
+site_given = False
+resteer, ucol, ns_deg = False, None, None    # EW re-steering / steered NS angle (BF64, BF256 with --src)
 EW0_64 = -7.5                # BF64 EW stage beam0 (zcu216 -t pos): column c points at l = lam400/(16 dEW) (c + EW0_64)
 rot_man = None
 NF, rows = 16, np.arange(14)   # packets (FPGAs = physical rows) per chunk, rows used
@@ -174,6 +186,7 @@ while inp:
     elif k == '--src': src = inp.pop(0)
     elif k == '--ew': ew_man = float(inp.pop(0))
     elif k == '--ew_nearest': ew_nearest = True
+    elif k == '--ew_eps': ew_eps = float(inp.pop(0))
     elif k == '--bfm1dir': bfm1dir = inp.pop(0)
     elif k == '--ew_beam0': EW0_64 = float(inp.pop(0))
     elif k == '--rot': rot_man = float(inp.pop(0))
@@ -183,7 +196,7 @@ while inp:
     elif k == '--mask': mask64 = [int(x) for x in inp.pop(0).split()]
     elif k == '--flim0': flim0 = float(inp.pop(0))
     elif k == '--radec': radec = inp.pop(0).split()
-    elif k == '--site': site = inp.pop(0)
+    elif k == '--site': site = inp.pop(0); site_given = True
     else: sys.exit('unknown option %s' % k)
 def ew_setup(t_unix):
     '''zcu216 EW-stage parameters in effect at t_unix, from the latest bfm1 log of each FPGA before it (logs more than
@@ -238,9 +251,10 @@ def ew_setup(t_unix):
     return dict(beam0=b0, theta_off=th, pos=pos, sep=sep, logs=[q['log'] for q in pars])
 
 
-def ew_weights(fMHz, u, ei, eps=1e-5):
+def ew_weights(fMHz, u, ei, eps=None):
     '''(nch, 16) weights: beam toward EW column u = sum_c w[ch, c] B_c (regularized s D^-1, eps x largest eigenvalue)
     and per channel the coherent gain toward u (1 = an ideal beam) and the requantization-noise gain |w|^2'''
+    eps = ew_eps if eps is None else eps
     lam = bf64_bfm2.C/(np.asarray(fMHz, float)*1e6)
     def sint(idx):                      # sin(theta) of steering index idx (zcu216: + theta_off in degrees)
         x = bf64_bfm2.LAM400/(NB1*ei['sep'])*(np.asarray(idx, float) + ei['beam0'])
@@ -258,6 +272,8 @@ def ew_weights(fMHz, u, ei, eps=1e-5):
     return w.astype(np.complex64), gain, np.sum(np.abs(w)**2, axis=1)
 
 
+if BF256 and not site_given:
+    site = 'FUS'
 cdir = os.path.join(odir, 'vcache')
 os.makedirs(cdir, exist_ok=True)
 
@@ -283,6 +299,58 @@ if BF256:
     print('NS matrix: log %s\n    dcal %s, scale %g, rows masked %s, NS beam %d at %.2f deg' %
           (minfo['log'], dcal, minfo['scale'], np.where(np.asarray(minfo['mask']) == 0)[0].tolist() if minfo['mask'] is not None else '?',
            ns, minfo['theta_deg'][ns] if minfo['theta_deg'] is not None else np.nan))
+    import bf256_bfm2
+    stc = bf64_bfm2.station(site)
+    if rot_man is not None:
+        stc['Rotate_deg'] = rot_man
+        bf64_bfm2.ROT_OVERRIDE[site] = rot_man
+    dlew = bf64_bfm2.LAM400/(NB1*stc['Spacing_EW_m'])            # EW-beam step in l
+    nsb0 = float(minfo.get('beam0', -7.5))
+    dlns = bf64_bfm2.LAM400/(16*stc['Spacing_NS_m'])             # NS-beam step in m (beam0 nsb0)
+    if minfo['theta_deg'] is not None:
+        nsd_rt = float(minfo['theta_deg'][ns])
+    else:
+        nsd_rt = float(np.degrees(np.arcsin(np.clip(dlns*(ns + nsb0), -1, 1))))
+    ucol0, nsd0 = float(col), None
+    if radec is not None or src is not None:
+        from astropy.coordinates import Angle
+        if radec is not None:
+            ra_d, dec_d, how = Angle(radec[0], 'hourangle').deg, Angle(radec[1], 'deg').deg, '--radec'
+        else:
+            ra_d, dec_d, how = bf64_bfm2.resolve_source(src, t300)
+            how = '--src %s (%s)' % (src, how)
+        az, el, lg, mg = bf64_bfm2.radec_to_lm(site, ra_d, dec_d, t300)
+        xcol = lg/dlew - EW0_64
+        nsd0 = float(np.degrees(np.arcsin(np.clip(mg, -1, 1))))
+        xns = mg/dlns - nsb0
+        print('direction from %s: J2000 %s %s; %s (lat %s, rot %g deg): az %.1f el %.1f, l %+.4f m %+.4f\n'
+              '    -> EW col %.2f (beam0 %g), NS beam %.2f = %.2f deg; trigger beam: EW col %d, NS beam %d = %.2f deg'
+              % (how, Angle(ra_d, 'deg').to_string('hourangle', sep=':', precision=1, pad=True),
+                 Angle(dec_d, 'deg').to_string(sep=':', precision=0, alwayssign=True, pad=True), site, stc['Latitude'],
+                 stc.get('Rotate_deg', 0.), az, el, lg, mg, xcol, EW0_64, xns, nsd0, col, ns, nsd_rt))
+        if el < 0:
+            print('WARNING: the direction is below the horizon at %s' % site)
+        if abs(xcol - col) > 1 or abs(xns - ns) > 1:
+            print('WARNING: the source is more than a beam away from the trigger beam')
+        ucol0 = xcol
+    ucol = float(np.clip(ew_man if ew_man is not None else ucol0, 0, NB1 - 1))
+    col = int(np.rint(ucol))
+    resteer = not ew_nearest and abs(ucol - col) > 0.005
+    if not resteer:
+        ucol = float(col)
+    ns_deg = nsdeg_man if nsdeg_man is not None else nsd0
+    ew_info = ew_setup(t300) if resteer else None
+    if resteer:
+        print('EW re-steered to column %.2f (recorded columns %d, %d): zcu216 logs %d (%s ...), beam0 %g, theta_off %g deg, '
+              'antenna spacing %.2f m' % (ucol, np.floor(ucol), np.floor(ucol) + 1, len(ew_info['logs']),
+              ', '.join(ew_info['logs'][:2]) or 'none (defaults)', ew_info['beam0'], ew_info['theta_off'], ew_info['sep']))
+    else:
+        print('EW column %d (recorded beam, no re-steering)' % col)
+    print('NS: %s' % ('steered offline to %.2f deg (cal, mask and scale of the real-time matrix)' % ns_deg
+                      if ns_deg is not None else 'real-time beam %d (%.2f deg)' % (ns, nsd_rt)))
+    if resteer or ns_deg is not None:
+        tag0 += '_e%s%s' % ('%05.2f' % ucol if resteer else '%02d' % col,
+                            '_n%+.1f' % ns_deg if ns_deg is not None else '_ns%d' % ns)
 elif BF64:
     # files: open every match, read the order of the first valid packet (header byte 36)
     cand = sorted(glob(pat.format(ts=ts, ts14=ymd + hms[:6], o='*')))
@@ -520,7 +588,11 @@ def extract(o):
         q = nsp[o]
         M = bf64_bfm2.bfm2_64(o, flim0, dcal, q['theta'], q['mask'], q['sep'], q['delay'])[:, ns, :][:, rows]   # (ch, row)
     elif BF256:
-        M = matrix_for(t300, o, dcal, logdir)[0][:, ns, :][:, rows]   # (ch, row)
+        if ns_deg is not None:                         # NS beam steered to the source (as the real-time matrix)
+            M = bf256_bfm2.bfm2_256(dcal, o, np.full(16, ns_deg), minfo['mask'], minfo['scale'],
+                                    minfo.get('beam0', -7.5))[:, 0, :][:, rows]
+        else:
+            M = matrix_for(t300, o, dcal, logdir)[0][:, ns, :][:, rows]   # (ch, row)
     else:
         M = bfm2(dcal, o)[par][:, ns, :][:, rows]       # (ch, row)
     # per-channel windows when the sweep is long (high DM): keep only each channel's own arrival +- PADX
@@ -532,7 +604,7 @@ def extract(o):
     nbad = nmiss = nseq = nbm = 0
     blk = 4096
     Wew = None
-    if BF64 and resteer:
+    if resteer:
         Wew, gew, qew = ew_weights(fe, ucol, ew_info)
         blk = 256                                      # 16 columns unpacked per packet (little free RAM)
         print('order %02d: EW re-steering to column %.2f: coherent gain median %.3f (min %.3f), |w| median %.2f '
@@ -584,7 +656,7 @@ def extract(o):
     tfirst = t0 + s0*TF if use_win else t0 + ck0*NSTK*TF
     info = dict(file=fn, t0=float(t0), nck=int(nCk), lin=int(lin), nbad=int(nbad), nmiss=int(nmiss), nseq=int(nseq),
                 nbm=int(nbm), bitmap=bool(use_bm), span=float((ck1 - ck0)*NSTK*TF), mode=mode, dcal=dcal, cpf=int(cpf),
-                chwin=bool(use_win), ew=float(ucol) if BF64 else None, resteer=bool(BF64 and resteer))
+                chwin=bool(use_win), ew=float(ucol) if ucol is not None else None, resteer=bool(resteer))
     np.savez(fc, y=y, tfirst=tfirst, info=json.dumps(info))      # JSON: readable under any numpy version
     ntot = (ck1 - ck0)*len(rows)
     print('order %02d: %s  file start %s, %.3f s read; packets flagged %d of %d (%.2f%%): no marker %d, off-sequence %d, '
@@ -699,7 +771,7 @@ dch = np.nanmean(np.where(good, dn, np.nan).reshape(nOut, -1, nfft), 2)*np.sqrt(
 tag = tag0 + ('_n%d' % nfft) + ('_flip' if flip else '') + xtag
 np.savez(os.path.join(odir, tag + '.npz'), dch=dch, good=good, fsub=fsub, tgrid=tgrid, prof=prof, prof0=prof0, wexp=wexp,
          boxcar=np.array(bx), snr_int=snb, width=nbest*dtb, tcen=tc,
-         t300=t300, toff=toff, dm=dm, beam=beam, ew=ucol if BF64 else col, ns_deg=ns_deg if BF64 else np.nan, nb=nb, nfft=nfft, flip=flip, flipfix=True, foff=foff, info=info)
+         t300=t300, toff=toff, dm=dm, beam=beam, ew=ucol if ucol is not None else col, ns_deg=ns_deg if ns_deg is not None else np.nan, nb=nb, nfft=nfft, flip=flip, flipfix=True, foff=foff, info=info)
 
 import warnings; warnings.simplefilter('ignore')
 import matplotlib; matplotlib.use('Agg')
@@ -713,7 +785,10 @@ ax[0].axvspan((tc - nbest*dtb/2)*1e3, (tc + nbest*dtb/2)*1e3, color='#C44E52', a
               label='best boxcar %.2f ms, S/N %.1f' % (nbest*dtb*1e3, snb))
 ax[0].legend(fontsize=7, loc='upper right')
 ax[0].set_ylabel('S/N (band sum)')
-bstr = ('FUS beam %d -> %s EW %s, NS %.1f deg' % (beam, site, '%.2f' % ucol if resteer else '%d' % col, ns_deg)) if BF64 else 'beam %d (NS %d, EW %d)' % (beam, ns, col)
+bstr = ('FUS beam %d -> %s EW %s, NS %.1f deg' % (beam, site, '%.2f' % ucol if resteer else '%d' % col, ns_deg)) if BF64 else \
+       ('beam %d -> EW %s, NS %s' % (beam, '%.2f' % ucol if resteer else '%d' % col,
+        '%.1f deg' % ns_deg if ns_deg is not None else 'beam %d' % ns) if BF256 and (resteer or ns_deg is not None)
+        else 'beam %d (NS %d, EW %d)' % (beam, ns, col))
 ax[0].set_title('%s %s %s UTC  %s  DM %.2f\nnfft %d (%.1f kHz), bin %.3f ms; t=0: reported t300 %+.0f ms; peak S/N %.1f at %+.2f ms\nf$^{-%g}$-weighted band sum; best boxcar %.2f ms: integrated S/N %.1f' %
                 (mode.upper(), ymd, hms, bstr, dm, nfft, DF/nfft*1e3, nb*tsub*1e3, toff*1e3, prof[pk], tms[pk], wexp, nbest*dtb*1e3, snb), fontsize=9.5)
 nf = 8
